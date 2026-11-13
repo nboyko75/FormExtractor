@@ -71,6 +71,9 @@ class FakeJob:
     def close(self):
         self.closed = True
 
+    def stop(self):
+        self.closed = True
+
 
 def recognize_result(form, image_path, result):
     form.load_document(image_path)
@@ -483,7 +486,7 @@ def test_zoom_buttons_wheel_and_limits(form, image_path):
     assert form.preview.tobytes() == source_pixels
 
 
-def test_zoomed_preview_scrolls_and_resets_for_new_document(form, tmp_path):
+def test_zoomed_preview_scrolls_and_keeps_zoom_for_new_document(form, tmp_path):
     from PIL import Image
 
     source = tmp_path / "large.png"
@@ -498,10 +501,11 @@ def test_zoomed_preview_scrolls_and_resets_for_new_document(form, tmp_path):
     assert form.canvas.yview()[1] == pytest.approx(1, abs=0.01)
     form.canvas.xview_moveto(1)
     assert form.canvas.xview()[1] == pytest.approx(1, abs=0.01)
+    zoom = form.zoom_level
     form.load_document(source)
-    assert form.zoom_level == 1
-    assert form.zoom_label.get() == "100%"
-    assert form.canvas.yview() == (0.0, 1.0)
+    assert form.zoom_level == zoom
+    assert form.zoom_label.get() == f"{zoom:.0%}"
+    assert sum(form.canvas.yview()) / 2 == pytest.approx(0.5, abs=0.01)
 
 
 def test_recognize_and_save_menu_use_selected_language(
@@ -545,6 +549,9 @@ def test_source_actions_and_zoom_layout(form):
     assert form.exit_button.master == form.save_button.master
     assert form.exit_button.winfo_rootx() > form.save_button.winfo_rootx()
     assert form.import_button.winfo_rootx() < form.ocr_language_box.winfo_rootx()
+    assert form.ocr_language_label.grid_info()["row"] == form.ocr_language_box.grid_info()["row"]
+    assert form.stop_button.winfo_rootx() < form.exit_button.winfo_rootx()
+    assert form.stop_button.winfo_rootx() > form.save_button.winfo_rootx()
     assert form.ocr_language_box.cget("width") == 30
     assert form.zoom_in_button.winfo_rooty() > (
         form.canvas.winfo_rooty() + form.canvas.winfo_height()
@@ -555,6 +562,9 @@ def test_source_actions_and_zoom_layout(form):
     )
     assert not form.zoom_in_button.cget("text")
     assert form.zoom_in_button.cget("image")
+    assert not form.add_area_button.cget("text")
+    assert not form.remove_area_button.cget("text")
+    assert form.add_area_button.cget("image") and form.remove_area_button.cget("image")
 
 
 def area_point(form, x, y):
@@ -653,6 +663,8 @@ def test_window_language_mask_and_templates_survive_reopen(desktop, tmp_path, im
         next(label for label, code in window.ocr_choices.items() if code == "uk")
     )
     window.file_mask.set("scan*.png")
+    window.zoom(2)
+    zoom = window.zoom_level
     window.panes.sashpos(0, 400)
     root.update()
     geometry = root.geometry()
@@ -665,10 +677,12 @@ def test_window_language_mask_and_templates_survive_reopen(desktop, tmp_path, im
         assert root.geometry() == geometry
         assert reopened.ocr_choices[reopened.ocr_language.get()] == "uk"
         assert reopened.file_mask.get() == "scan*.png"
+        assert reopened.zoom_level == zoom
         assert reopened.panes.sashpos(0) / reopened.panes.winfo_width() == pytest.approx(
             fraction, abs=0.005
         )
         reopened.load_document(image_path)
+        assert reopened.zoom_level == zoom
         assert len(reopened.area_editor.areas) == 1
         assert len(reopened.canvas.find_withtag("areas")) == 2
     finally:
@@ -737,3 +751,62 @@ def test_no_areas_or_no_mask_matches_cannot_start_recognition(form, image_path, 
     form.recognize()
     assert form.job is None
     assert form.test_errors[-1][1] == "No supported files match the file mask."
+
+
+def test_progress_updates_current_file_and_stop_cancels_polling(form, image_path, result):
+    class ProgressJob(FakeJob):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.notices = []
+
+        def poll(self):
+            return self.notices.pop(0) if self.notices else None
+
+    recognize_result(form, image_path, result)
+    previous_text = form.text_editor.get("1.0", "end-1c")
+    assert form.stop_button.instate(["disabled"])
+    form.job_factory = ProgressJob
+    form.recognize()
+    job = form.job
+    assert image_path.name in form.status.get()
+    assert form.stop_button.instate(["!disabled"])
+    job.notices = [("progress", "folder/first.pdf"), ("progress", "folder/current.pdf")]
+    form.root.after_cancel(form.poll_id)
+    form._poll_job()
+    assert form.status.get() == "Recognizing: current.pdf"
+    assert form.job is job and not job.closed
+    pending_poll = form.poll_id
+    assert pending_poll is not None
+    form.stop_button.invoke()
+    assert job.closed
+    assert form.job is None and form.poll_id is None
+    assert pending_poll not in form.root.tk.call("after", "info")
+    assert form.stop_button.instate(["disabled"])
+    assert form.recognize_button.instate(["!disabled"])
+    assert form.status.get() == "Recognition stopped."
+    assert form.text_editor.get("1.0", "end-1c") == previous_text
+    # No stale queued notice from the canceled job can replace the stopped status.
+    form._poll_job()
+    assert form.status.get() == "Recognition stopped."
+    form.recognize()
+    assert form.job is not job and form.job.started
+    form.stop_button.invoke()
+
+
+def test_splitter_mask_and_zoom_are_saved_without_closing(form, image_path):
+    from formextractor.settings import load_settings
+
+    form.root.deiconify()
+    form.root.update()
+    form.load_document(image_path)
+    form.panes.sashpos(0, 320)
+    form.panes.event_generate("<ButtonRelease-1>")
+    form.file_mask.set("invoice*.png")
+    form.zoom(2)
+    form.root.after(450, form.root.quit)
+    form.root.mainloop()
+    stored = load_settings(form.preferences_path)
+    assert stored["file_mask"] == "invoice*.png"
+    assert stored["zoom_level"] == form.zoom_level
+    assert stored["split_fraction"] == pytest.approx(320 / form.panes.winfo_width())
+    assert form.preferences_id is None

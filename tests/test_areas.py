@@ -41,6 +41,7 @@ def test_batch_crops_only_areas_scales_coordinates_and_orders_columns(tmp_path):
     source = tmp_path / "a.png"
     sources = matching_files(source, "*.png")
     layout = ColorOCR()
+    notices = []
     result = recognize_batch(
         str(source),
         list(map(str, sources)),
@@ -48,11 +49,13 @@ def test_batch_crops_only_areas_scales_coordinates_and_orders_columns(tmp_path):
         "*.png",
         language="uk",
         layout=layout,
+        on_file=lambda filename: notices.append((filename, len(layout.sizes))),
     )
     assert result.columns == [1, 3]
     assert [Path(row.file).name for row in result.rows] == ["a.png", "b.png"]
     assert all(row.values == ["(0, 128, 0)", "(255, 0, 0)"] for row in result.rows)
     assert layout.sizes == [(60, 80), (60, 80), (120, 160), (120, 160)]
+    assert notices == [(str(sources[0]), 0), (str(sources[1]), 2)]
     assert result.language == "uk"
     assert BatchResult.model_validate_json(result.model_dump_json()) == result
     text = batch_text(result, Translator())

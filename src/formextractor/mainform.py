@@ -22,7 +22,7 @@ from .ocr_languages import OCR_LANGUAGES
 from .output import to_text, validate_output_path, write_output
 from .schema import DocumentResult
 from .settings import load_language, load_settings, save_language, update_settings
-from .widgets import ToolTip, zoom_icon
+from .widgets import ToolTip, circle_icon, zoom_icon
 
 MIN_ZOOM = 0.25
 MAX_ZOOM = 4.0
@@ -62,7 +62,10 @@ class MainForm:
         self.photo: ImageTk.PhotoImage | None = None
         self.page_number = 1
         self.page_count = 0
-        self.zoom_level = 1.0
+        zoom = self.preferences.get("zoom_level", 1.0)
+        self.zoom_level = (
+            zoom if isinstance(zoom, (int, float)) and MIN_ZOOM <= zoom <= MAX_ZOOM else 1.0
+        )
         self.reset_preview_view = True
         self.zoom_label = tk.StringVar(master=root, value="100%")
         self.ocr_choices = {f"{name} ({code})": code for code, name in OCR_LANGUAGES.items()}
@@ -77,6 +80,7 @@ class MainForm:
         self.poll_id = None
         self.resize_id = None
         self.split_id = None
+        self.preferences_id = None
         self.split_initialized = False
         self.status = tk.StringVar(value=self.tr("start"))
         self.filename = tk.StringVar(value=self.tr("no_document"))
@@ -132,6 +136,7 @@ class MainForm:
         panes.add(left, weight=1)
         panes.add(right, weight=1)
         panes.bind("<Configure>", self._schedule_initial_split)
+        panes.bind("<ButtonRelease-1>", self._schedule_preferences_save, add=True)
 
         left.columnconfigure(0, weight=1)
         left.rowconfigure(2, weight=1)
@@ -173,20 +178,25 @@ class MainForm:
         page_controls.grid(row=0, column=1, sticky="w")
         area_controls = ttk.Frame(navigation)
         area_controls.grid(row=0, column=2, sticky="e")
+        self.area_icons = {
+            (plus, disabled): circle_icon(root, plus=plus, disabled=disabled)
+            for plus in (True, False)
+            for disabled in (True, False)
+        }
         self.add_area_button = ttk.Button(
             area_controls,
-            text=self.tr("add_area"),
-            width=0,
+            image=(self.area_icons[True, False], "disabled", self.area_icons[True, True]),
             command=lambda: self.set_area_mode("add"),
         )
         self.add_area_button.pack(side="left", padx=(4, 4))
         self.remove_area_button = ttk.Button(
             area_controls,
-            text=self.tr("remove_area"),
-            width=0,
+            image=(self.area_icons[False, False], "disabled", self.area_icons[False, True]),
             command=lambda: self.set_area_mode("remove"),
         )
         self.remove_area_button.pack(side="left")
+        ToolTip(self.add_area_button, self.tr("add_area"))
+        ToolTip(self.remove_area_button, self.tr("remove_area"))
 
         def arrange_navigation(event):
             required = (
@@ -233,13 +243,13 @@ class MainForm:
         ttk.Label(page_controls, textvariable=self.page_label).pack(side="left", padx=(2, 0))
         source_actions = ttk.Frame(left)
         source_actions.grid(row=4, column=0, sticky="ew", pady=(4, 0))
+        source_actions.columnconfigure(2, weight=1)
         self.import_button = ttk.Button(
             source_actions, text=self.tr("import"), command=self.import_document
         )
-        self.import_button.grid(row=1, column=0, sticky="w", padx=(0, 8))
-        ttk.Label(source_actions, text=self.tr("ocr_language")).grid(
-            row=0, column=1, sticky="w", pady=(0, 4)
-        )
+        self.import_button.grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.ocr_language_label = ttk.Label(source_actions, text=self.tr("ocr_language"))
+        self.ocr_language_label.grid(row=0, column=1, sticky="w", padx=(0, 6))
         self.ocr_language_box = ttk.Combobox(
             source_actions,
             textvariable=self.ocr_language,
@@ -248,7 +258,8 @@ class MainForm:
             width=30,
             height=18,
         )
-        self.ocr_language_box.grid(row=1, column=1, sticky="w")
+        self.ocr_language_box.grid(row=0, column=2, sticky="ew")
+        self.ocr_language_box.bind("<<ComboboxSelected>>", self._schedule_preferences_save)
 
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
@@ -273,6 +284,8 @@ class MainForm:
         self.recognize_button.pack(side="left")
         self.save_button = ttk.Button(actions, text=self.tr("save"), command=self.save)
         self.save_button.pack(side="left", padx=8)
+        self.stop_button = ttk.Button(actions, text=self.tr("stop"), command=self.stop_recognition)
+        self.stop_button.pack(side="left", padx=(0, 8))
         self.exit_button = ttk.Button(actions, text=self.tr("exit"), command=self.close)
         self.exit_button.pack(side="left")
 
@@ -284,6 +297,7 @@ class MainForm:
         self.progress.grid(row=0, column=1, padx=(12, 0))
         root.bind("<Control-o>", lambda event: self.import_document())
         root.bind("<Control-s>", lambda event: self.save())
+        self.file_mask.trace_add("write", self._schedule_preferences_save)
         self._update_controls()
 
     def _schedule_initial_split(self, event=None) -> None:
@@ -299,7 +313,7 @@ class MainForm:
         self.split_id = None
         if self.panes.winfo_ismapped() and self.panes.winfo_width() > 1:
             ratio = self.preferences.get("split_fraction", 0.5)
-            if not isinstance(ratio, (int, float)) or not 0.1 <= ratio <= 0.9:
+            if not isinstance(ratio, (int, float)) or not 0 <= ratio <= 1:
                 ratio = 0.5
             self.panes.sashpos(0, round(self.panes.winfo_width() * ratio))
             self.split_initialized = True
@@ -347,6 +361,7 @@ class MainForm:
             (self.import_button, not busy),
             (self.recognize_button, can_recognize),
             (self.save_button, self.result is not None and not busy),
+            (self.stop_button, busy),
             (self.previous_button, self.page_number > 1),
             (self.next_button, self.page_number < self.page_count),
             (self.add_area_button, self.source is not None and not busy),
@@ -396,7 +411,6 @@ class MainForm:
         )
         self.area_editor.set_mode(None)
         self.preview = preview
-        self.zoom_level = 1.0
         self.reset_preview_view = True
         self.page_number, self.page_count = 1, count
         self.filename.set(source.name)
@@ -450,6 +464,7 @@ class MainForm:
             self.zoom_level = level
             self._draw_preview()
             self._update_zoom_controls()
+            self._schedule_preferences_save()
 
     def _on_mousewheel(self, event) -> str:
         if getattr(event, "num", None) == 4:
@@ -548,7 +563,7 @@ class MainForm:
             self._finish_job()
             messagebox.showerror(self.tr("start_error"), self.tr.error(exc), parent=self.root)
             return
-        self.status.set(self.tr("recognizing"))
+        self.status.set(self.tr("recognizing_file", name=sources[0].name))
         self.progress.start(12)
         self._update_controls()
         self.poll_id = self.root.after(100, self._poll_job)
@@ -558,11 +573,20 @@ class MainForm:
         if self.job is None:
             return
         try:
-            message = self.job.poll()
-            if message is None:
-                self.poll_id = self.root.after(100, self._poll_job)
+            # Drain progress notices so a quick batch cannot leave the status
+            # bar lagging behind the worker by one timer interval per file.
+            for _ in range(100):
+                message = self.job.poll()
+                if message is None:
+                    self.poll_id = self.root.after(100, self._poll_job)
+                    return
+                kind, content = message
+                if kind != "progress":
+                    break
+                self.status.set(self.tr("recognizing_file", name=Path(content).name))
+            else:
+                self.poll_id = self.root.after(1, self._poll_job)
                 return
-            kind, content = message
             if kind == "error":
                 raise ExtractionError(content)
             result = (
@@ -598,6 +622,24 @@ class MainForm:
             self.job = None
         self.progress.stop()
         self._update_controls()
+
+    def stop_recognition(self) -> None:
+        if self.job is None:
+            return
+        if self.poll_id is not None:
+            self.root.after_cancel(self.poll_id)
+            self.poll_id = None
+        job, self.job = self.job, None
+        try:
+            job.stop()
+        except Exception as exc:
+            self.status.set(self.tr("failed_status"))
+            messagebox.showerror(self.tr("stop"), self.tr.error(exc), parent=self.root)
+        else:
+            self.status.set(self.tr("stopped"))
+        finally:
+            self.progress.stop()
+            self._update_controls()
 
     def save(self) -> None:
         if self.result is None or self.source is None or self.job is not None:
@@ -696,6 +738,7 @@ class MainForm:
             },
             "ocr_language": self.ocr_choices.get(self.ocr_language.get(), "en"),
             "file_mask": self.file_mask.get(),
+            "zoom_level": self.zoom_level,
         }
         if self.split_initialized and self.panes.winfo_width() > 1:
             changes["split_fraction"] = self.panes.sashpos(0) / self.panes.winfo_width()
@@ -714,6 +757,15 @@ class MainForm:
             return False
         return True
 
+    def _schedule_preferences_save(self, *args) -> None:
+        if self.preferences_id is not None:
+            self.root.after_cancel(self.preferences_id)
+        self.preferences_id = self.root.after(350, self._save_preferences_idle)
+
+    def _save_preferences_idle(self) -> None:
+        self.preferences_id = None
+        self._persist_settings()
+
     def _areas_changed(self) -> None:
         self._persist_settings()
         self._update_controls()
@@ -725,7 +777,7 @@ class MainForm:
         self._update_controls()
 
     def _shutdown(self) -> None:
-        for callback in (self.poll_id, self.resize_id, self.split_id):
+        for callback in (self.poll_id, self.resize_id, self.split_id, self.preferences_id):
             if callback is not None:
                 self.root.after_cancel(callback)
         self._finish_job()

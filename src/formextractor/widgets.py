@@ -24,6 +24,23 @@ def zoom_icon(owner: tk.Misc, *, plus: bool, disabled: bool = False) -> ImageTk.
     return result
 
 
+def circle_icon(owner: tk.Misc, *, plus: bool, disabled: bool = False) -> ImageTk.PhotoImage:
+    """Draw the area-action circle and plus/minus at the current display scale."""
+    size = max(20, round(20 * owner.winfo_fpixels("1i") / 96))
+    image = Image.new("RGBA", (80, 80))
+    draw = ImageDraw.Draw(image)
+    color = "#9ca3af" if disabled else "#263648"
+    draw.ellipse((7, 7, 73, 73), outline=color, width=6)
+    draw.line((24, 40, 56, 40), fill=color, width=6)
+    if plus:
+        draw.line((40, 24, 40, 56), fill=color, width=6)
+    resized = image.resize((size, size), Image.Resampling.LANCZOS)
+    result = ImageTk.PhotoImage(resized, master=owner)
+    resized.close()
+    image.close()
+    return result
+
+
 class ToolTip:
     def __init__(self, widget: ttk.Widget, text: str) -> None:
         self.widget = widget

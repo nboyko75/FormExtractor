@@ -3,6 +3,7 @@
 import fnmatch
 import math
 import os
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 from typing import Literal
@@ -107,6 +108,7 @@ def recognize_batch(
     *,
     language: str = "en",
     layout=None,
+    on_file: Callable[[str], None] | None = None,
 ) -> BatchResult:
     """Apply the template's relative page rectangles to each file, in stable order."""
     if not areas:
@@ -121,6 +123,8 @@ def recognize_batch(
     required_pages = {area.page for area in ordered}
     rows = []
     for filename in sources:
+        if on_file is not None:
+            on_file(filename)
         row = BatchRow(file=filename, values=[None] * len(ordered))
         seen = set()
         try:

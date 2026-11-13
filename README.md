@@ -28,18 +28,18 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
 - **Magnifying-glass + / − buttons** below the preview, before Previous / Next,
   or the mouse wheel over the preview,
   enlarge or reduce the scan from 25% to 400% of its fitted size. Use the scrollbars
-  or drag the scan to move around an enlarged page. Importing a new document resets
-  zoom to 100%; browsing pages keeps the current zoom.
-- **Recognition language**, in the selector immediately after Import, selects the language used
+  or drag the scan to move around an enlarged page. The zoom percentage is preserved
+  when importing another document, browsing pages, or restarting the application.
+- **Recognition language**, with its label and selector on one line after Import, selects the language used
   by PaddleOCR. The choices match PP-StructureV3 in PaddleOCR 3.3, with native names
   and language codes. English is selected initially; subsequent launches restore the selection.
   The selection is locked while
   recognition is running; a newly selected language may require downloading models.
 - **Import** sits before the language selector; **Exit** sits next to **Save** in the right pane.
-- **Add area**, at the right of the zoom toolbar, enables a crosshair. Drag over the
+- **Circle +** (Add area), at the right of the zoom toolbar, enables a crosshair. Drag over the
   scan to create a red numbered recognition rectangle. Drawings work at any zoom;
   very small accidental drags are ignored. Areas belong to the currently displayed page.
-- **Remove area** enables a pointer with a minus badge. Click inside an area to delete
+- **Circle −** (Remove area) enables a pointer with a minus badge. Click inside an area to delete
   it. Remaining area numbers stay unchanged. Press Escape or click the active mode
   button again to return to dragging/panning. On narrow windows, page navigation
   wraps below the zoom/area toolbar.
@@ -49,7 +49,11 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   The default `*` matches all supported documents and images in that folder.
 - **Recognize** requires at least one area. It applies the imported file's numbered
   areas to the same page numbers in every matching file, recognizing only those crops
-  with the selected language. Recognition runs in a separate process.
+  with the selected language. Recognition runs in a separate process, and the status
+  bar displays the name of the file currently being processed.
+- **Stop**, immediately before Exit, terminates the recognition worker without waiting
+  for the current page to finish. The unfinished batch is discarded; any previously
+  completed results remain available. Recognition can be started again immediately.
 - The right pane opens with **Text** first, followed by **JSON**. Results are a table
   with one row per file and one column per area, ordered by area number. Both are editable;
   edits to each format are independent, and Save defaults to the selected tab's format.
@@ -71,8 +75,10 @@ discard settings changes. An unchanged language does not require a restart.
 Preferences are saved per user in `%APPDATA%\FormExtractor\settings.json` on Windows,
 or `$XDG_CONFIG_HOME/FormExtractor/settings.json` (default `~/.config/FormExtractor/settings.json`)
 on other systems. The interface language does not change the OCR recognition language.
-Window size, position, maximized state, pane divider, OCR language, and file mask
-are restored on startup. Area changes are saved immediately under the source file's
+Window size, position, maximized state, pane divider, OCR language, file mask, and
+zoom percentage are restored on startup. Splitter, mask, language-selection, and
+zoom changes are saved automatically after a short delay, as well as on exit.
+Area changes are saved immediately under the source file's
 absolute path and restored when that file is imported again. Coordinates are stored
 relative to page dimensions, so they survive zoom changes and scale across matching files.
 Native file dialogs use the operating system's language; technical library diagnostics

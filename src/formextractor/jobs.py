@@ -19,6 +19,7 @@ def recognize_worker(
                 [RecognitionArea.model_validate(area) for area in areas],
                 mask,
                 language=lang,
+                on_file=lambda filename: messages.put(("progress", filename)),
             )
             messages.put(("batch_result", result.model_dump_json()))
             return
@@ -34,6 +35,7 @@ class RecognitionJob:
     ) -> None:
         context = multiprocessing.get_context("spawn")
         self.messages = context.Queue()
+        self._closed = False
         self.process = context.Process(
             target=recognize_worker,
             args=(source, self.messages, lang),
@@ -55,11 +57,23 @@ class RecognitionJob:
                 )
             return None
 
+    def stop(self) -> None:
+        """Terminate native OCR immediately instead of waiting for a page to finish."""
+        if not self._closed and self.process.pid is not None and self.process.is_alive():
+            self.process.terminate()
+        self.close()
+
     def close(self) -> None:
+        if self._closed:
+            return
         if self.process.pid is not None:
             self.process.join(timeout=0.2)
             if self.process.is_alive():
                 self.process.terminate()
                 self.process.join(timeout=1)
+            if self.process.is_alive():
+                self.process.kill()
+                self.process.join(timeout=1)
             self.process.close()
         self.messages.close()
+        self._closed = True

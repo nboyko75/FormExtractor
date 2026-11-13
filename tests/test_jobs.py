@@ -1,3 +1,4 @@
+import multiprocessing
 import time
 from queue import Queue
 from types import SimpleNamespace
@@ -63,10 +64,15 @@ def test_spawned_batch_worker_preserves_area_template_and_reports_file_errors(tm
         job.start()
         deadline = time.monotonic() + 15
         message = None
+        progress = []
         while message is None and time.monotonic() < deadline:
             message = job.poll()
+            if message is not None and message[0] == "progress":
+                progress.append(message[1])
+                message = None
             time.sleep(0.02)
         assert message is not None and message[0] == "batch_result"
+        assert progress == [filename]
         result = BatchResult.model_validate_json(message[1])
         assert result.language == "uk"
         assert result.areas == [area]
@@ -74,5 +80,48 @@ def test_spawned_batch_worker_preserves_area_template_and_reports_file_errors(tm
         assert result.rows[0].file == filename
         assert result.rows[0].values == [None]
         assert "Input file does not exist" in result.rows[0].error
+    finally:
+        job.close()
+
+
+def test_stop_terminates_before_waiting_and_is_idempotent(monkeypatch):
+    calls = []
+    process = SimpleNamespace(pid=123, alive=True)
+
+    def terminate():
+        calls.append("terminate")
+        process.alive = False
+
+    process.is_alive = lambda: process.alive
+    process.terminate = terminate
+    process.join = lambda timeout: calls.append("join")
+    process.close = lambda: calls.append("close process")
+    context = SimpleNamespace(
+        Queue=lambda: SimpleNamespace(close=lambda: calls.append("close queue")),
+        Process=lambda **kwargs: process,
+    )
+    monkeypatch.setattr("formextractor.jobs.multiprocessing.get_context", lambda method: context)
+    job = RecognitionJob("scan.pdf")
+    job.stop()
+    assert calls == ["terminate", "join", "close process", "close queue"]
+    job.stop()
+    job.close()
+    assert calls == ["terminate", "join", "close process", "close queue"]
+
+
+def test_stop_ends_a_running_worker_without_waiting_for_its_work():
+    job = RecognitionJob("unused.pdf")
+    job.process.close()
+    job.process = multiprocessing.get_context("spawn").Process(
+        target=time.sleep, args=(30,), daemon=True
+    )
+    try:
+        job.start()
+        pid = job.process.pid
+        started = time.monotonic()
+        job.stop()
+        assert time.monotonic() - started < 3
+        assert all(child.pid != pid for child in multiprocessing.active_children())
+        assert job._closed
     finally:
         job.close()
