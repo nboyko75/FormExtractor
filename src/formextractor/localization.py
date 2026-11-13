@@ -17,6 +17,19 @@ TRANSLATIONS = {
         "zoom_in": "Zoom in +",
         "zoom_out": "Zoom out −",
         "ocr_language": "Recognition language",
+        "add_area": "Add area",
+        "remove_area": "Remove area",
+        "file_mask": "File mask",
+        "area_number": "Area {number}",
+        "batch_error": "Error",
+        "areas_ready": "Add recognition areas, set the file mask, then recognize matching files.",
+        "areas_required": "Add at least one recognition area before recognizing.",
+        "no_matches": "No supported files match the file mask.",
+        "batch_complete": (
+            "Recognition complete: {count} file(s), {errors} with errors. Review and save "
+            "the table."
+        ),
+        "invalid_mask": "Use filename masks such as *.pdf or *.png;*.jpg, without folders.",
         "restart_title": "Restart required",
         "restart_message": (
             "The application will now restart to apply the interface language. The "
@@ -84,6 +97,21 @@ TRANSLATIONS = {
         "zoom_in": "Vergrößern +",
         "zoom_out": "Verkleinern −",
         "ocr_language": "Erkennungssprache",
+        "add_area": "Bereich hinzufügen",
+        "remove_area": "Bereich entfernen",
+        "file_mask": "Dateimaske",
+        "area_number": "Bereich {number}",
+        "batch_error": "Fehler",
+        "areas_ready": (
+            "Erkennungsbereiche hinzufügen, Dateimaske festlegen und passende Dateien erkennen."
+        ),
+        "areas_required": "Fügen Sie vor der Erkennung mindestens einen Bereich hinzu.",
+        "no_matches": "Keine unterstützten Dateien entsprechen der Dateimaske.",
+        "batch_complete": (
+            "Erkennung abgeschlossen: {count} Datei(en), {errors} mit Fehlern. Tabelle "
+            "prüfen und speichern."
+        ),
+        "invalid_mask": "Verwenden Sie Dateimasken wie *.pdf oder *.png;*.jpg ohne Ordner.",
         "restart_title": "Neustart erforderlich",
         "restart_message": (
             "Die Anwendung wird jetzt neu gestartet, um die Sprache anzuwenden. Das "
@@ -158,6 +186,22 @@ TRANSLATIONS = {
         "zoom_in": "Agrandir +",
         "zoom_out": "Réduire −",
         "ocr_language": "Langue de reconnaissance",
+        "add_area": "Ajouter une zone",
+        "remove_area": "Supprimer une zone",
+        "file_mask": "Filtre de fichiers",
+        "area_number": "Zone {number}",
+        "batch_error": "Erreur",
+        "areas_ready": (
+            "Ajoutez des zones, définissez le filtre et lancez la reconnaissance des "
+            "fichiers correspondants."
+        ),
+        "areas_required": "Ajoutez au moins une zone avant de lancer la reconnaissance.",
+        "no_matches": "Aucun fichier pris en charge ne correspond au filtre.",
+        "batch_complete": (
+            "Reconnaissance terminée : {count} fichier(s), {errors} avec des erreurs. "
+            "Vérifiez et enregistrez le tableau."
+        ),
+        "invalid_mask": "Utilisez des filtres comme *.pdf ou *.png;*.jpg, sans dossiers.",
         "restart_title": "Redémarrage nécessaire",
         "restart_message": (
             "L’application va redémarrer pour appliquer la langue de l’interface. Le "
@@ -233,6 +277,19 @@ TRANSLATIONS = {
         "zoom_in": "Acercar +",
         "zoom_out": "Alejar −",
         "ocr_language": "Idioma de reconocimiento",
+        "add_area": "Añadir área",
+        "remove_area": "Eliminar área",
+        "file_mask": "Filtro de archivos",
+        "area_number": "Área {number}",
+        "batch_error": "Error",
+        "areas_ready": "Añada áreas, defina el filtro y reconozca los archivos coincidentes.",
+        "areas_required": "Añada al menos un área antes de iniciar el reconocimiento.",
+        "no_matches": "Ningún archivo compatible coincide con el filtro.",
+        "batch_complete": (
+            "Reconocimiento completado: {count} archivo(s), {errors} con errores. Revise "
+            "y guarde la tabla."
+        ),
+        "invalid_mask": "Use filtros como *.pdf o *.png;*.jpg, sin carpetas.",
         "restart_title": "Es necesario reiniciar",
         "restart_message": (
             "La aplicación se reiniciará para aplicar el idioma de la interfaz. Se "
@@ -304,6 +361,19 @@ TRANSLATIONS = {
         "zoom_in": "Ampliar +",
         "zoom_out": "Reduzir −",
         "ocr_language": "Idioma de reconhecimento",
+        "add_area": "Adicionar área",
+        "remove_area": "Remover área",
+        "file_mask": "Filtro de ficheiros",
+        "area_number": "Área {number}",
+        "batch_error": "Erro",
+        "areas_ready": "Adicione áreas, defina o filtro e reconheça os ficheiros correspondentes.",
+        "areas_required": "Adicione pelo menos uma área antes de iniciar o reconhecimento.",
+        "no_matches": "Nenhum ficheiro suportado corresponde ao filtro.",
+        "batch_complete": (
+            "Reconhecimento concluído: {count} ficheiro(s), {errors} com erros. Reveja e "
+            "guarde a tabela."
+        ),
+        "invalid_mask": "Use filtros como *.pdf ou *.png;*.jpg, sem pastas.",
         "restart_title": "É necessário reiniciar",
         "restart_message": (
             "A aplicação vai reiniciar para aplicar o idioma da interface. O documento "
@@ -375,6 +445,19 @@ TRANSLATIONS = {
         "zoom_in": "Ingrandisci +",
         "zoom_out": "Riduci −",
         "ocr_language": "Lingua di riconoscimento",
+        "add_area": "Aggiungi area",
+        "remove_area": "Rimuovi area",
+        "file_mask": "Filtro file",
+        "area_number": "Area {number}",
+        "batch_error": "Errore",
+        "areas_ready": "Aggiungi aree, imposta il filtro e riconosci i file corrispondenti.",
+        "areas_required": "Aggiungi almeno un’area prima di avviare il riconoscimento.",
+        "no_matches": "Nessun file supportato corrisponde al filtro.",
+        "batch_complete": (
+            "Riconoscimento completato: {count} file, {errors} con errori. Controlla e "
+            "salva la tabella."
+        ),
+        "invalid_mask": "Usa filtri come *.pdf o *.png;*.jpg, senza cartelle.",
         "restart_title": "Riavvio necessario",
         "restart_message": (
             "L’applicazione verrà riavviata per applicare la lingua dell’interfaccia. Il "
@@ -448,6 +531,19 @@ TRANSLATIONS = {
         "zoom_in": "Збільшити +",
         "zoom_out": "Зменшити −",
         "ocr_language": "Мова розпізнавання",
+        "add_area": "Додати область",
+        "remove_area": "Видалити область",
+        "file_mask": "Маска файлів",
+        "area_number": "Область {number}",
+        "batch_error": "Помилка",
+        "areas_ready": "Додайте області, задайте маску файлів і розпізнайте відповідні файли.",
+        "areas_required": "Додайте хоча б одну область перед розпізнаванням.",
+        "no_matches": "Немає підтримуваних файлів, що відповідають масці.",
+        "batch_complete": (
+            "Розпізнавання завершено. Файлів: {count}, з помилками: {errors}. Перевірте "
+            "та збережіть таблицю."
+        ),
+        "invalid_mask": "Використовуйте маски на кшталт *.pdf або *.png;*.jpg без папок.",
         "restart_title": "Потрібен перезапуск",
         "restart_message": (
             "Програму буде перезапущено для застосування мови інтерфейсу. Поточний "
@@ -520,6 +616,19 @@ TRANSLATIONS = {
         "zoom_in": "Увеличить +",
         "zoom_out": "Уменьшить −",
         "ocr_language": "Язык распознавания",
+        "add_area": "Добавить область",
+        "remove_area": "Удалить область",
+        "file_mask": "Маска файлов",
+        "area_number": "Область {number}",
+        "batch_error": "Ошибка",
+        "areas_ready": "Добавьте области, задайте маску файлов и распознайте подходящие файлы.",
+        "areas_required": "Добавьте хотя бы одну область перед распознаванием.",
+        "no_matches": "Нет поддерживаемых файлов, соответствующих маске.",
+        "batch_complete": (
+            "Распознавание завершено. Файлов: {count}, с ошибками: {errors}. Проверьте и "
+            "сохраните таблицу."
+        ),
+        "invalid_mask": "Используйте маски вида *.pdf или *.png;*.jpg без папок.",
         "restart_title": "Требуется перезапуск",
         "restart_message": (
             "Приложение будет перезапущено для применения языка интерфейса. Текущий "
@@ -594,6 +703,8 @@ class Translator:
         message = str(error)
         if self.language == "en":
             return message
+        if message in TRANSLATIONS[self.language].values():
+            return message
         if message == "Password-protected PDFs must be unlocked before extraction":
             return self("unlock_pdf")
         for key in (
@@ -606,6 +717,9 @@ class Translator:
             "invalid_pdf",
             "invalid_image",
             "invalid_dimensions",
+            "invalid_mask",
+            "areas_required",
+            "no_matches",
         ):
             template = TRANSLATIONS["en"][key]
             pattern = re.escape(template)

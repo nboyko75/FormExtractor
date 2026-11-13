@@ -1,6 +1,7 @@
 """Desktop document preview and recognition results."""
 
 import multiprocessing
+import re
 import sys
 import tkinter as tk
 from contextlib import closing
@@ -10,15 +11,17 @@ from tkinter import filedialog, messagebox, ttk
 import pymupdf
 from PIL import Image, ImageTk
 
+from .area_editor import AreaEditor
+from .areas import BatchResult, batch_text, matching_files, read_areas, source_key
 from .dialogs import AboutForm, SettingsForm
 from .documents import iter_pages
 from .errors import ExtractionError
 from .jobs import RecognitionJob
 from .localization import Translator
 from .ocr_languages import OCR_LANGUAGES
-from .output import to_text, write_output
+from .output import to_text, validate_output_path, write_output
 from .schema import DocumentResult
-from .settings import load_language, save_language
+from .settings import load_language, load_settings, save_language, update_settings
 from .widgets import ToolTip, zoom_icon
 
 MIN_ZOOM = 0.25
@@ -47,12 +50,14 @@ class MainForm:
         self.root = root
         self.job_factory = job_factory
         self.preferences_path = preferences_path
+        self.preferences = load_settings(preferences_path)
         self.tr = Translator(load_language(preferences_path))
         self.restart_requested = False
         self.settings_form = None
         self.about_form = None
         self.source: Path | None = None
-        self.result: DocumentResult | None = None
+        self.result: DocumentResult | BatchResult | None = None
+        self.batch_sources = []
         self.preview: Image.Image | None = None
         self.photo: ImageTk.PhotoImage | None = None
         self.page_number = 1
@@ -60,8 +65,14 @@ class MainForm:
         self.zoom_level = 1.0
         self.reset_preview_view = True
         self.zoom_label = tk.StringVar(master=root, value="100%")
-        self.ocr_language = tk.StringVar(master=root, value="English (en)")
         self.ocr_choices = {f"{name} ({code})": code for code, name in OCR_LANGUAGES.items()}
+        language = self.preferences.get("ocr_language", "en")
+        selected_language = next(
+            (label for label, code in self.ocr_choices.items() if code == language), "English (en)"
+        )
+        self.ocr_language = tk.StringVar(master=root, value=selected_language)
+        mask = self.preferences.get("file_mask", "*")
+        self.file_mask = tk.StringVar(master=root, value=mask if isinstance(mask, str) else "*")
         self.job = None
         self.poll_id = None
         self.resize_id = None
@@ -72,8 +83,21 @@ class MainForm:
         self.page_label = tk.StringVar(value=self.tr("no_pages"))
 
         root.title("FormExtractor")
-        root.geometry("1160x780")
+        window = self.preferences.get("window", {})
+        if not isinstance(window, dict):
+            window = {}
+        geometry = window.get("geometry", "1160x780+40+40")
+        if not isinstance(geometry, str) or not re.fullmatch(r"\d+x\d+[+-]\d+[+-]\d+", geometry):
+            geometry = "1160x780+40+40"
+        self.normal_geometry = geometry
+        root.geometry(geometry)
         root.minsize(820, 560)
+        if window.get("state") == "zoomed":
+            try:
+                root.state("zoomed")
+            except tk.TclError:
+                pass
+        root.bind("<Configure>", self._remember_geometry, add=True)
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
@@ -114,9 +138,15 @@ class MainForm:
         ttk.Label(left, text=self.tr("preview"), font=("Segoe UI", 12, "bold")).grid(
             row=0, column=0, sticky="w", pady=(0, 6)
         )
-        ttk.Label(left, textvariable=self.filename, width=1).grid(
-            row=1, column=0, sticky="ew", pady=(0, 8)
+        source_header = ttk.Frame(left)
+        source_header.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        source_header.columnconfigure(0, weight=1)
+        ttk.Label(source_header, textvariable=self.filename, width=30).grid(
+            row=0, column=0, sticky="ew"
         )
+        ttk.Label(source_header, text=self.tr("file_mask")).grid(row=0, column=1, padx=(8, 4))
+        self.mask_entry = ttk.Entry(source_header, textvariable=self.file_mask, width=12)
+        self.mask_entry.grid(row=0, column=2, sticky="e")
         preview_frame = ttk.Frame(left)
         preview_frame.grid(row=2, column=0, sticky="nsew")
         preview_frame.columnconfigure(0, weight=1)
@@ -132,41 +162,75 @@ class MainForm:
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<Button-4>", self._on_mousewheel)
         self.canvas.bind("<Button-5>", self._on_mousewheel)
-        self.canvas.bind("<ButtonPress-1>", lambda event: self.canvas.scan_mark(event.x, event.y))
-        self.canvas.bind(
-            "<B1-Motion>", lambda event: self.canvas.scan_dragto(event.x, event.y, gain=1)
-        )
+        self.area_editor = AreaEditor(self.canvas, self._areas_changed)
+        root.bind("<Escape>", lambda event: self.set_area_mode(None))
         navigation = ttk.Frame(left, padding=(0, 8))
         navigation.grid(row=3, column=0, sticky="ew")
+        navigation.columnconfigure(1, weight=1)
+        zoom_controls = ttk.Frame(navigation)
+        zoom_controls.grid(row=0, column=0, sticky="w")
+        page_controls = ttk.Frame(navigation)
+        page_controls.grid(row=0, column=1, sticky="w")
+        area_controls = ttk.Frame(navigation)
+        area_controls.grid(row=0, column=2, sticky="e")
+        self.add_area_button = ttk.Button(
+            area_controls,
+            text=self.tr("add_area"),
+            width=0,
+            command=lambda: self.set_area_mode("add"),
+        )
+        self.add_area_button.pack(side="left", padx=(4, 4))
+        self.remove_area_button = ttk.Button(
+            area_controls,
+            text=self.tr("remove_area"),
+            width=0,
+            command=lambda: self.set_area_mode("remove"),
+        )
+        self.remove_area_button.pack(side="left")
+
+        def arrange_navigation(event):
+            required = (
+                sum(
+                    frame.winfo_reqwidth()
+                    for frame in (zoom_controls, page_controls, area_controls)
+                )
+                + 12
+            )
+            if event.width < required:
+                page_controls.grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
+            else:
+                page_controls.grid(row=0, column=1, columnspan=1, sticky="w", pady=0)
+
+        navigation.bind("<Configure>", arrange_navigation)
         self.zoom_icons = {
             (plus, disabled): zoom_icon(root, plus=plus, disabled=disabled)
             for plus in (True, False)
             for disabled in (True, False)
         }
         self.zoom_in_button = ttk.Button(
-            navigation,
+            zoom_controls,
             image=(self.zoom_icons[True, False], "disabled", self.zoom_icons[True, True]),
             command=lambda: self.zoom(1),
         )
         self.zoom_in_button.pack(side="left")
         self.zoom_out_button = ttk.Button(
-            navigation,
+            zoom_controls,
             image=(self.zoom_icons[False, False], "disabled", self.zoom_icons[False, True]),
             command=lambda: self.zoom(-1),
         )
         self.zoom_out_button.pack(side="left", padx=(4, 6))
         ToolTip(self.zoom_in_button, self.tr("zoom_in"))
         ToolTip(self.zoom_out_button, self.tr("zoom_out"))
-        ttk.Label(navigation, textvariable=self.zoom_label).pack(side="left", padx=(0, 8))
+        ttk.Label(zoom_controls, textvariable=self.zoom_label).pack(side="left", padx=(0, 8))
         self.previous_button = ttk.Button(
-            navigation, text=self.tr("previous"), width=0, command=lambda: self.turn_page(-1)
+            page_controls, text=self.tr("previous"), width=0, command=lambda: self.turn_page(-1)
         )
         self.previous_button.pack(side="left")
         self.next_button = ttk.Button(
-            navigation, text=self.tr("next"), width=0, command=lambda: self.turn_page(1)
+            page_controls, text=self.tr("next"), width=0, command=lambda: self.turn_page(1)
         )
         self.next_button.pack(side="left", padx=4)
-        ttk.Label(navigation, textvariable=self.page_label).pack(side="left", padx=(2, 0))
+        ttk.Label(page_controls, textvariable=self.page_label).pack(side="left", padx=(2, 0))
         source_actions = ttk.Frame(left)
         source_actions.grid(row=4, column=0, sticky="ew", pady=(4, 0))
         self.import_button = ttk.Button(
@@ -181,7 +245,7 @@ class MainForm:
             textvariable=self.ocr_language,
             values=list(self.ocr_choices),
             state="readonly",
-            width=8,
+            width=30,
             height=18,
         )
         self.ocr_language_box.grid(row=1, column=1, sticky="w")
@@ -193,8 +257,8 @@ class MainForm:
         )
         self.notebook = ttk.Notebook(right)
         self.notebook.grid(row=1, column=0, sticky="nsew")
+        self.text_editor = self._add_editor(self.tr("text"), wrap="none")
         self.json_editor = self._add_editor("JSON", wrap="none")
-        self.text_editor = self._add_editor(self.tr("text"), wrap="word")
         edit_hint = ttk.Label(right, text=self.tr("separate_edits"), wraplength=350)
         edit_hint.grid(row=2, column=0, sticky="w", pady=(8, 4))
         right.bind(
@@ -234,7 +298,10 @@ class MainForm:
     def _initialize_split(self) -> None:
         self.split_id = None
         if self.panes.winfo_ismapped() and self.panes.winfo_width() > 1:
-            self.panes.sashpos(0, self.panes.winfo_width() // 2)
+            ratio = self.preferences.get("split_fraction", 0.5)
+            if not isinstance(ratio, (int, float)) or not 0.1 <= ratio <= 0.9:
+                ratio = 0.5
+            self.panes.sashpos(0, round(self.panes.winfo_width() * ratio))
             self.split_initialized = True
 
     def _add_editor(self, title: str, *, wrap: str) -> tk.Text:
@@ -264,23 +331,30 @@ class MainForm:
 
     def _update_controls(self) -> None:
         busy = self.job is not None
+        can_recognize = self.source is not None and bool(self.area_editor.areas) and not busy
         self.file_menu.entryconfigure(0, state="disabled" if busy else "normal")
-        self.file_menu.entryconfigure(
-            1, state="normal" if self.source is not None and not busy else "disabled"
-        )
+        self.file_menu.entryconfigure(1, state="normal" if can_recognize else "disabled")
         self.file_menu.entryconfigure(
             2, state="normal" if self.result is not None and not busy else "disabled"
         )
         self.ocr_language_box.configure(state="disabled" if busy else "readonly")
+        self.mask_entry.configure(state="disabled" if busy else "normal")
+        self.area_editor.enabled = not busy
+        if busy or (self.area_editor.mode == "remove" and not self.area_editor.areas):
+            self.area_editor.set_mode(None)
         self._update_zoom_controls()
         for widget, enabled in [
             (self.import_button, not busy),
-            (self.recognize_button, self.source is not None and not busy),
+            (self.recognize_button, can_recognize),
             (self.save_button, self.result is not None and not busy),
             (self.previous_button, self.page_number > 1),
             (self.next_button, self.page_number < self.page_count),
+            (self.add_area_button, self.source is not None and not busy),
+            (self.remove_area_button, bool(self.area_editor.areas) and not busy),
         ]:
             widget.state(["!disabled"] if enabled else ["disabled"])
+        for button, mode in ((self.add_area_button, "add"), (self.remove_area_button, "remove")):
+            button.state(["pressed"] if self.area_editor.mode == mode else ["!pressed"])
         for editor in (self.text_editor, self.json_editor):
             editor.configure(state="normal" if self.result is not None and not busy else "disabled")
 
@@ -315,6 +389,12 @@ class MainForm:
         if self.preview is not None:
             self.preview.close()
         self.source = source
+        files = load_settings(self.preferences_path).get("files", {})
+        template = files.get(source_key(source), {}) if isinstance(files, dict) else {}
+        self.area_editor.areas = (
+            read_areas(template.get("areas")) if isinstance(template, dict) else []
+        )
+        self.area_editor.set_mode(None)
         self.preview = preview
         self.zoom_level = 1.0
         self.reset_preview_view = True
@@ -322,9 +402,10 @@ class MainForm:
         self.filename.set(source.name)
         self.page_label.set(self.tr("page", number=1, count=count))
         self.result = None
+        self.batch_sources = []
         self._set_editor(self.text_editor, "")
         self._set_editor(self.json_editor, "")
-        self.status.set(self.tr("ready"))
+        self.status.set(self.tr("areas_ready"))
         self._update_controls()
         self._draw_preview()
 
@@ -340,6 +421,7 @@ class MainForm:
         if self.preview is not None:
             self.preview.close()
         self.preview = preview
+        self.area_editor.start = self.area_editor.end = None
         self.reset_preview_view = True
         self.page_number = number
         self.page_label.set(self.tr("page", number=number, count=self.page_count))
@@ -361,6 +443,7 @@ class MainForm:
 
     def zoom(self, steps: float) -> None:
         if self.preview is None:
+            self.area_editor.image_box = None
             return
         level = max(MIN_ZOOM, min(MAX_ZOOM, self.zoom_level * ZOOM_STEP ** max(-8, min(8, steps))))
         if level != self.zoom_level:
@@ -422,6 +505,13 @@ class MainForm:
         self.canvas.xview_moveto((center_x * region_width - width / 2) / region_width)
         self.canvas.yview_moveto((center_y * region_height - height / 2) / region_height)
         self.reset_preview_view = False
+        self.area_editor.page = self.page_number
+        self.area_editor.image_box = (
+            (region_width - size[0]) / 2,
+            (region_height - size[1]) / 2,
+            *size,
+        )
+        self.area_editor.render()
 
     @staticmethod
     def _set_editor(editor: tk.Text, content: str) -> None:
@@ -434,9 +524,24 @@ class MainForm:
     def recognize(self) -> None:
         if self.source is None or self.job is not None or not self._confirm_discard_edits():
             return
+        if not self.area_editor.areas:
+            messagebox.showwarning(
+                self.tr("recognize"), self.tr("areas_required"), parent=self.root
+            )
+            return
         try:
+            sources = matching_files(self.source, self.file_mask.get())
+            if not sources:
+                raise ExtractionError(self.tr("no_matches"))
+            if not self._persist_settings():
+                return
+            self.batch_sources = sources
             self.job = self.job_factory(
-                str(self.source), lang=self.ocr_choices[self.ocr_language.get()]
+                str(self.source),
+                lang=self.ocr_choices[self.ocr_language.get()],
+                areas=[area.model_dump() for area in self.area_editor.areas],
+                sources=[str(source) for source in sources],
+                mask=self.file_mask.get(),
             )
             self.job.start()
         except Exception as exc:
@@ -460,11 +565,26 @@ class MainForm:
             kind, content = message
             if kind == "error":
                 raise ExtractionError(content)
-            result = DocumentResult.model_validate_json(content)
+            result = (
+                BatchResult.model_validate_json(content)
+                if kind == "batch_result"
+                else DocumentResult.model_validate_json(content)
+            )
             self.result = result
-            self._set_editor(self.text_editor, to_text(result))
+            self._set_editor(
+                self.text_editor,
+                batch_text(result, self.tr) if isinstance(result, BatchResult) else to_text(result),
+            )
             self._set_editor(self.json_editor, result.model_dump_json(indent=2) + "\n")
-            self.status.set(self.tr("complete", count=len(result.pages)))
+            self.status.set(
+                self.tr(
+                    "batch_complete",
+                    count=len(result.rows),
+                    errors=sum(bool(row.error) for row in result.rows),
+                )
+                if isinstance(result, BatchResult)
+                else self.tr("complete", count=len(result.pages))
+            )
         except Exception as exc:
             self.status.set(self.tr("failed_status"))
             messagebox.showerror(self.tr("failed"), self.tr.error(exc), parent=self.root)
@@ -506,13 +626,15 @@ class MainForm:
             if destination.suffix.lower() == ".json":
                 editor = self.json_editor
                 # Keep edited JSON compatible with the application's output contract.
-                value = DocumentResult.model_validate_json(editor.get("1.0", "end-1c"))
+                value = type(self.result).model_validate_json(editor.get("1.0", "end-1c"))
                 content = value.model_dump_json(indent=2) + "\n"
             elif destination.suffix.lower() == ".txt":
                 editor = self.text_editor
                 content = editor.get("1.0", "end-1c")
             else:
                 raise ExtractionError("Choose a .txt or .json filename.")
+            for source in self.batch_sources:
+                validate_output_path(destination, source)
             write_output(destination, content, source=self.source)
         except Exception as exc:
             messagebox.showerror(self.tr("save_error"), self.tr.error(exc), parent=self.root)
@@ -532,6 +654,8 @@ class MainForm:
             self.settings_form = None
             return
         if not self._confirm_discard_edits():
+            return
+        if not self._persist_settings():
             return
         try:
             save_language(language, self.preferences_path)
@@ -555,7 +679,50 @@ class MainForm:
     def close(self) -> None:
         if not self._confirm_discard_edits():
             return
+        if not self._persist_settings():
+            return
         self._shutdown()
+
+    def _remember_geometry(self, event) -> None:
+        if event.widget == self.root and self.root.state() == "normal":
+            if self.root.winfo_width() >= 820 and self.root.winfo_height() >= 560:
+                self.normal_geometry = self.root.geometry()
+
+    def _persist_settings(self) -> bool:
+        changes = {
+            "window": {
+                "geometry": self.normal_geometry,
+                "state": "zoomed" if self.root.state() == "zoomed" else "normal",
+            },
+            "ocr_language": self.ocr_choices.get(self.ocr_language.get(), "en"),
+            "file_mask": self.file_mask.get(),
+        }
+        if self.split_initialized and self.panes.winfo_width() > 1:
+            changes["split_fraction"] = self.panes.sashpos(0) / self.panes.winfo_width()
+        if self.source is not None:
+            files = load_settings(self.preferences_path).get("files", {})
+            if not isinstance(files, dict):
+                files = {}
+            files[source_key(self.source)] = {
+                "areas": [area.model_dump() for area in self.area_editor.areas]
+            }
+            changes["files"] = files
+        try:
+            update_settings(changes, self.preferences_path)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror(self.tr("settings_error"), self.tr.error(exc), parent=self.root)
+            return False
+        return True
+
+    def _areas_changed(self) -> None:
+        self._persist_settings()
+        self._update_controls()
+
+    def set_area_mode(self, mode) -> None:
+        if self.source is None or self.job is not None:
+            return
+        self.area_editor.set_mode(None if self.area_editor.mode == mode else mode)
+        self._update_controls()
 
     def _shutdown(self) -> None:
         for callback in (self.poll_id, self.resize_id, self.split_id):

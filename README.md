@@ -30,21 +30,35 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   enlarge or reduce the scan from 25% to 400% of its fitted size. Use the scrollbars
   or drag the scan to move around an enlarged page. Importing a new document resets
   zoom to 100%; browsing pages keeps the current zoom.
-- **Recognition language**, in the compact selector immediately after Import, selects the language used
+- **Recognition language**, in the selector immediately after Import, selects the language used
   by PaddleOCR. The choices match PP-StructureV3 in PaddleOCR 3.3, with native names
-  and language codes. English is selected initially. The selection is locked while
+  and language codes. English is selected initially; subsequent launches restore the selection.
+  The selection is locked while
   recognition is running; a newly selected language may require downloading models.
 - **Import** sits before the language selector; **Exit** sits next to **Save** in the right pane.
-- **Recognize** runs PaddleOCR on all pages using the selected recognition language
-  in a separate process, keeping the window responsive.
-- The right pane opens with **JSON** first, followed by **Text**. Both are editable;
+- **Add area**, at the right of the zoom toolbar, enables a crosshair. Drag over the
+  scan to create a red numbered recognition rectangle. Drawings work at any zoom;
+  very small accidental drags are ignored. Areas belong to the currently displayed page.
+- **Remove area** enables a pointer with a minus badge. Click inside an area to delete
+  it. Remaining area numbers stay unchanged. Press Escape or click the active mode
+  button again to return to dragging/panning. On narrow windows, page navigation
+  wraps below the zoom/area toolbar.
+- **File mask**, above the preview on the right, selects supported files in the imported
+  file's folder. Use `*.pdf`, `scan*.png`, or multiple masks such as `*.png;*.jpg`.
+  Matching is case-insensitive, alphabetical, and does not recurse into subfolders.
+  The default `*` matches all supported documents and images in that folder.
+- **Recognize** requires at least one area. It applies the imported file's numbered
+  areas to the same page numbers in every matching file, recognizing only those crops
+  with the selected language. Recognition runs in a separate process.
+- The right pane opens with **Text** first, followed by **JSON**. Results are a table
+  with one row per file and one column per area, ordered by area number. Both are editable;
   edits to each format are independent, and Save defaults to the selected tab's format.
 - **Save...** provides `.txt` and `.json` filters and saves the corresponding editor. JSON is validated before saving.
 - **Exit** closes the window and stops its recognition worker.
 
 The menu provides **File → Import, Recognize, Save, Settings, Exit** and **About**.
 The menu actions perform the same actions as the corresponding buttons; Recognize
-and Save become available when a document and results are ready. About shows the application
+and Save become available when areas and results are ready. About shows the application
 version and author contact details, using the same layout as DocExplorer.
 
 In **File → Settings → Main**, select the interface language: English, German,
@@ -57,6 +71,10 @@ discard settings changes. An unchanged language does not require a restart.
 Preferences are saved per user in `%APPDATA%\FormExtractor\settings.json` on Windows,
 or `$XDG_CONFIG_HOME/FormExtractor/settings.json` (default `~/.config/FormExtractor/settings.json`)
 on other systems. The interface language does not change the OCR recognition language.
+Window size, position, maximized state, pane divider, OCR language, and file mask
+are restored on startup. Area changes are saved immediately under the source file's
+absolute path and restored when that file is imported again. Coordinates are stored
+relative to page dimensions, so they survive zoom changes and scale across matching files.
 Native file dialogs use the operating system's language; technical library diagnostics
 and recognized document contents retain their original text.
 
@@ -138,7 +156,17 @@ PDF rotation and EXIF orientation are respected; transparency is flattened onto 
 
 ## Output and limitations
 
-JSON contains `source`, `mode: "paddle"`, `model: "PP-StructureV3"`, and `pages`. Each page includes:
+Desktop batch JSON contains `source` (the template file), `mode: "areas"`, `model`,
+`language`, `file_mask`, the numbered `areas` with page numbers and relative coordinates,
+`columns` (ascending area numbers), and `rows`. Each row contains `file`, an ordered
+`values` array, and an optional `error`. Unreadable files, failed crops, and missing
+template pages are reported per file without discarding other files' results; values
+that could not be recognized are `null`. The Text tab shows an aligned table, escaping
+line breaks inside cells as `\n`. JSON retains original multiline values. Files should
+share the template's layout; no automatic alignment between different form layouts is performed.
+
+The CLI/Python whole-document API retains its existing output: JSON contains `source`,
+`mode: "paddle"`, `model: "PP-StructureV3"`, and `pages`. Each page includes:
 
 - `page`, `image_width`, `image_height`: page identity and processed image dimensions.
 - `text`: PaddleOCR's full reconstructed Markdown, including detected table HTML.
