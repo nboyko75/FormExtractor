@@ -82,6 +82,8 @@ def recognize_result(form, image_path, result):
 
 
 def test_import_button_preview_and_initial_states(form, image_path, monkeypatch):
+    assert form.notebook.tab(0, "text") == "JSON"
+    assert form.notebook.select() == str(form.json_editor.master)
     assert form.recognize_button.instate(["disabled"])
     assert form.save_button.instate(["disabled"])
     monkeypatch.setattr(
@@ -156,6 +158,8 @@ def test_recognition_displays_unpaired_paddle_text(form, image_path, result):
 @pytest.mark.parametrize("suffix", [".txt", ".json"])
 def test_save_formats_and_edits(form, monkeypatch, image_path, result, tmp_path, suffix):
     recognize_result(form, image_path, result)
+    editor = form.json_editor if suffix == ".json" else form.text_editor
+    form.notebook.select(editor.master)
     destination = tmp_path / ("result" + suffix)
     dialogs = []
 
@@ -167,6 +171,8 @@ def test_save_formats_and_edits(form, monkeypatch, image_path, result, tmp_path,
     form.text_editor.insert("end", "\nReviewed: Україна")
     form.save()
     assert {pattern for _, pattern in dialogs[0]["filetypes"]} == {"*.txt", "*.json"}
+    assert dialogs[0]["defaultextension"] == suffix
+    assert dialogs[0]["filetypes"][0][1] == "*" + suffix
     if suffix == ".txt":
         assert "Reviewed: Україна" in destination.read_text(encoding="utf-8")
         assert not form.text_editor.edit_modified()
@@ -519,10 +525,13 @@ def test_source_actions_and_zoom_layout(form):
     form.root.update()
     left = form.root.nametowidget(form.panes.panes()[0])
     assert form.import_button.master.master == left
-    assert form.exit_button.master == form.import_button.master
-    assert form.ocr_language_box.winfo_rootx() < form.import_button.winfo_rootx()
-    assert form.import_button.winfo_rootx() < form.exit_button.winfo_rootx()
-    assert form.exit_button.winfo_rootx() + form.exit_button.winfo_width() <= (
-        left.winfo_rootx() + left.winfo_width()
+    assert form.exit_button.master == form.save_button.master
+    assert form.exit_button.winfo_rootx() > form.save_button.winfo_rootx()
+    assert form.import_button.winfo_rootx() < form.ocr_language_box.winfo_rootx()
+    assert form.ocr_language_box.cget("width") == 8
+    assert form.zoom_in_button.winfo_rooty() > (
+        form.canvas.winfo_rooty() + form.canvas.winfo_height()
     )
-    assert form.zoom_in_button.winfo_rooty() < form.canvas.winfo_rooty()
+    assert form.zoom_out_button.winfo_rootx() < form.previous_button.winfo_rootx()
+    assert not form.zoom_in_button.cget("text")
+    assert form.zoom_in_button.cget("image")

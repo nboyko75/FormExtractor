@@ -19,6 +19,7 @@ from .ocr_languages import OCR_LANGUAGES
 from .output import to_text, write_output
 from .schema import DocumentResult
 from .settings import load_language, save_language
+from .widgets import ToolTip, zoom_icon
 
 MIN_ZOOM = 0.25
 MAX_ZOOM = 4.0
@@ -93,11 +94,10 @@ class MainForm:
 
         header = ttk.Frame(root, padding=(16, 12))
         header.grid(row=0, column=0, sticky="ew")
-        ttk.Label(header, text="FormExtractor", font=("Segoe UI", 18, "bold")).pack(side="left")
         tagline = ttk.Label(header, text=self.tr("tagline"), wraplength=500)
-        tagline.pack(side="left", padx=20)
+        tagline.pack(side="left")
         header.bind(
-            "<Configure>", lambda event: tagline.configure(wraplength=max(200, event.width - 250))
+            "<Configure>", lambda event: tagline.configure(wraplength=max(200, event.width - 32))
         )
 
         panes = ttk.Panedwindow(root, orient="horizontal")
@@ -110,27 +110,15 @@ class MainForm:
         panes.bind("<Configure>", self._schedule_initial_split)
 
         left.columnconfigure(0, weight=1)
-        left.rowconfigure(3, weight=1)
+        left.rowconfigure(2, weight=1)
         ttk.Label(left, text=self.tr("preview"), font=("Segoe UI", 12, "bold")).grid(
             row=0, column=0, sticky="w", pady=(0, 6)
         )
         ttk.Label(left, textvariable=self.filename, width=1).grid(
             row=1, column=0, sticky="ew", pady=(0, 8)
         )
-        zoom_controls = ttk.Frame(left)
-        zoom_controls.grid(row=2, column=0, sticky="w", pady=(0, 8))
-        self.zoom_in_button = ttk.Button(
-            zoom_controls, text=self.tr("zoom_in"), command=lambda: self.zoom(1)
-        )
-        self.zoom_in_button.pack(side="left")
-        self.zoom_out_button = ttk.Button(
-            zoom_controls, text=self.tr("zoom_out"), command=lambda: self.zoom(-1)
-        )
-        self.zoom_out_button.pack(side="left", padx=6)
-        ttk.Label(zoom_controls, textvariable=self.zoom_label).pack(side="left")
-
         preview_frame = ttk.Frame(left)
-        preview_frame.grid(row=3, column=0, sticky="nsew")
+        preview_frame.grid(row=2, column=0, sticky="nsew")
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
         self.canvas = tk.Canvas(preview_frame, background="#e8edf2", highlightthickness=0)
@@ -149,37 +137,54 @@ class MainForm:
             "<B1-Motion>", lambda event: self.canvas.scan_dragto(event.x, event.y, gain=1)
         )
         navigation = ttk.Frame(left, padding=(0, 8))
-        navigation.grid(row=4, column=0, sticky="ew")
+        navigation.grid(row=3, column=0, sticky="ew")
+        self.zoom_icons = {
+            (plus, disabled): zoom_icon(root, plus=plus, disabled=disabled)
+            for plus in (True, False)
+            for disabled in (True, False)
+        }
+        self.zoom_in_button = ttk.Button(
+            navigation,
+            image=(self.zoom_icons[True, False], "disabled", self.zoom_icons[True, True]),
+            command=lambda: self.zoom(1),
+        )
+        self.zoom_in_button.pack(side="left")
+        self.zoom_out_button = ttk.Button(
+            navigation,
+            image=(self.zoom_icons[False, False], "disabled", self.zoom_icons[False, True]),
+            command=lambda: self.zoom(-1),
+        )
+        self.zoom_out_button.pack(side="left", padx=(4, 6))
+        ToolTip(self.zoom_in_button, self.tr("zoom_in"))
+        ToolTip(self.zoom_out_button, self.tr("zoom_out"))
+        ttk.Label(navigation, textvariable=self.zoom_label).pack(side="left", padx=(0, 8))
         self.previous_button = ttk.Button(
-            navigation, text=self.tr("previous"), command=lambda: self.turn_page(-1)
+            navigation, text=self.tr("previous"), width=0, command=lambda: self.turn_page(-1)
         )
         self.previous_button.pack(side="left")
-        ttk.Label(navigation, textvariable=self.page_label).pack(side="left", padx=12)
         self.next_button = ttk.Button(
-            navigation, text=self.tr("next"), command=lambda: self.turn_page(1)
+            navigation, text=self.tr("next"), width=0, command=lambda: self.turn_page(1)
         )
-        self.next_button.pack(side="left")
+        self.next_button.pack(side="left", padx=4)
+        ttk.Label(navigation, textvariable=self.page_label).pack(side="left", padx=(2, 0))
         source_actions = ttk.Frame(left)
-        source_actions.grid(row=5, column=0, sticky="ew", pady=(4, 0))
-        source_actions.columnconfigure(0, weight=1)
+        source_actions.grid(row=4, column=0, sticky="ew", pady=(4, 0))
+        self.import_button = ttk.Button(
+            source_actions, text=self.tr("import"), command=self.import_document
+        )
+        self.import_button.grid(row=1, column=0, sticky="w", padx=(0, 8))
         ttk.Label(source_actions, text=self.tr("ocr_language")).grid(
-            row=0, column=0, sticky="w", pady=(0, 4)
+            row=0, column=1, sticky="w", pady=(0, 4)
         )
         self.ocr_language_box = ttk.Combobox(
             source_actions,
             textvariable=self.ocr_language,
             values=list(self.ocr_choices),
             state="readonly",
-            width=16,
+            width=8,
             height=18,
         )
-        self.ocr_language_box.grid(row=1, column=0, sticky="ew", padx=(0, 8))
-        self.import_button = ttk.Button(
-            source_actions, text=self.tr("import"), command=self.import_document
-        )
-        self.import_button.grid(row=1, column=1, padx=(0, 8))
-        self.exit_button = ttk.Button(source_actions, text=self.tr("exit"), command=self.close)
-        self.exit_button.grid(row=1, column=2)
+        self.ocr_language_box.grid(row=1, column=1, sticky="w")
 
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
@@ -188,8 +193,8 @@ class MainForm:
         )
         self.notebook = ttk.Notebook(right)
         self.notebook.grid(row=1, column=0, sticky="nsew")
-        self.text_editor = self._add_editor(self.tr("text"), wrap="word")
         self.json_editor = self._add_editor("JSON", wrap="none")
+        self.text_editor = self._add_editor(self.tr("text"), wrap="word")
         edit_hint = ttk.Label(right, text=self.tr("separate_edits"), wraplength=350)
         edit_hint.grid(row=2, column=0, sticky="w", pady=(8, 4))
         right.bind(
@@ -204,6 +209,8 @@ class MainForm:
         self.recognize_button.pack(side="left")
         self.save_button = ttk.Button(actions, text=self.tr("save"), command=self.save)
         self.save_button.pack(side="left", padx=8)
+        self.exit_button = ttk.Button(actions, text=self.tr("exit"), command=self.close)
+        self.exit_button.pack(side="left")
 
         footer = ttk.Frame(root, padding=(16, 12))
         footer.grid(row=2, column=0, sticky="ew")
@@ -475,7 +482,7 @@ class MainForm:
     def save(self) -> None:
         if self.result is None or self.source is None or self.job is not None:
             return
-        json_selected = self.notebook.index(self.notebook.select()) == 1
+        json_selected = self.notebook.select() == str(self.json_editor.master)
         types = [(self.tr("text_files"), "*.txt"), (self.tr("json_files"), "*.json")]
         if json_selected:
             types.reverse()

@@ -25,18 +25,20 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
 
 - **Import...** opens a PDF, JPG, PNG, TIFF, BMP, or WebP in the left preview pane.
 - **Previous / Next** browse pages of a PDF or multi-frame image.
-- **Zoom in / Zoom out** above the preview, or the mouse wheel over the preview,
+- **Magnifying-glass + / − buttons** below the preview, before Previous / Next,
+  or the mouse wheel over the preview,
   enlarge or reduce the scan from 25% to 400% of its fitted size. Use the scrollbars
   or drag the scan to move around an enlarged page. Importing a new document resets
   zoom to 100%; browsing pages keeps the current zoom.
-- **Recognition language**, immediately before Import, selects the language used
+- **Recognition language**, in the compact selector immediately after Import, selects the language used
   by PaddleOCR. The choices match PP-StructureV3 in PaddleOCR 3.3, with native names
   and language codes. English is selected initially. The selection is locked while
   recognition is running; a newly selected language may require downloading models.
-- **Import** and **Exit** sit at the right end of the left pane's bottom row.
+- **Import** sits before the language selector; **Exit** sits next to **Save** in the right pane.
 - **Recognize** runs PaddleOCR on all pages using the selected recognition language
   in a separate process, keeping the window responsive.
-- The right pane contains editable **Text** and **JSON** results. Edits to each format are independent.
+- The right pane opens with **JSON** first, followed by **Text**. Both are editable;
+  edits to each format are independent, and Save defaults to the selected tab's format.
 - **Save...** provides `.txt` and `.json` filters and saves the corresponding editor. JSON is validated before saving.
 - **Exit** closes the window and stops its recognition worker.
 
