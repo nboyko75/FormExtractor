@@ -1,64 +1,182 @@
 # FormExtractor
 
-FormExtractor is an application for recognizing text in scanned forms from PDF and image files and extracting it into parameter name–value pairs. It is designed to return the extracted data as plain text or JSON for review, storage, or further processing.
+FormExtractor recognizes text in scanned PDFs and images using **PaddleOCR PP-StructureV3**, running locally on CPU by default. It includes a desktop form, a command-line interface, and a Python API. Recognition does not use Ollama or a language-model server.
 
-## Project status
+## Installation
 
-This repository is in its initial setup stage. The application code, installation steps, and usage commands are not yet available. The workflow and examples below describe the intended behavior.
+Use Python 3.10 or 3.11 for the pinned PaddleOCR 3.3.x / PaddlePaddle 3.2.x dependencies.
 
-## Planned capabilities
-
-- Read scanned forms from PDF and image files.
-- Use optical character recognition (OCR) to recognize text in scans.
-- Identify form field labels as parameter names and associate them with their values.
-- Return the extracted parameter names and values in plain text or JSON format.
-
-Specific image formats and OCR languages will be documented when support is implemented.
-
-## Intended workflow
-
-1. Provide a PDF or image containing a scanned form.
-2. Recognize the form's text using OCR.
-3. Extract parameter names and their corresponding values.
-4. Return the results in the selected output format: text or JSON.
-
-For example, a form containing fields labeled `Full Name`, `Date of Birth`, and `Application Number` would produce the name–value pairs shown below.
-
-## Output examples
-
-These examples illustrate the proposed output structure; the final interface may change during development.
-
-### Plain text
-
-```text
-Full Name: Alex Morgan
-Date of Birth: 1990-05-21
-Application Number: APP-00123
+```powershell
+py -3.10 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
 ```
 
-### JSON
+This installs PaddleOCR's document parsing dependencies and the CPU PaddlePaddle runtime. On first recognition, PaddleOCR downloads its models. After the models are cached, recognition can run offline. No scans are submitted to a remote recognition service.
 
-```json
-{
-  "parameters": [
-    {
-      "param_name": "Full Name",
-      "param_value": "Alex Morgan"
-    },
-    {
-      "param_name": "Date of Birth",
-      "param_value": "1990-05-21"
-    },
-    {
-      "param_name": "Application Number",
-      "param_value": "APP-00123"
-    }
-  ]
-}
+On Linux/macOS, use `python3 -m venv .venv` and `.venv/bin/python` instead of the Windows executable path. Runtime wheel availability depends on OS and Python version. See the [PaddleOCR installation instructions](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.3.2/docs/version3.x/installation.en.md).
+
+## Desktop application
+
+```powershell
+.\.venv\Scripts\python.exe main.py
 ```
 
-In this proposed format, each parameter has a `param_name` containing the field label and a `param_value` containing its recognized value. Values are represented as strings to preserve text such as identifiers with leading zeros.
+Alternatively, use `python -m formextractor.mainform` or the installed `formextractor-gui` command. Tkinter is included with standard Windows Python; Linux installations may require the distribution's Tkinter package.
 
-## Recognition quality
+- **Import...** opens a PDF, JPG, PNG, TIFF, BMP, or WebP in the left preview pane.
+- **Previous / Next** browse pages of a PDF or multi-frame image.
+- **Zoom in / Zoom out** above the preview, or the mouse wheel over the preview,
+  enlarge or reduce the scan from 25% to 400% of its fitted size. Use the scrollbars
+  or drag the scan to move around an enlarged page. Importing a new document resets
+  zoom to 100%; browsing pages keeps the current zoom.
+- **Recognition language**, immediately before Import, selects the language used
+  by PaddleOCR. The choices match PP-StructureV3 in PaddleOCR 3.3, with native names
+  and language codes. English is selected initially. The selection is locked while
+  recognition is running; a newly selected language may require downloading models.
+- **Import** and **Exit** sit at the right end of the left pane's bottom row.
+- **Recognize** runs PaddleOCR on all pages using the selected recognition language
+  in a separate process, keeping the window responsive.
+- The right pane contains editable **Text** and **JSON** results. Edits to each format are independent.
+- **Save...** provides `.txt` and `.json` filters and saves the corresponding editor. JSON is validated before saving.
+- **Exit** closes the window and stops its recognition worker.
 
-OCR accuracy depends on scan quality, text readability, and form layout. Clear, correctly oriented scans are preferable. Extracted names and values should be reviewed when accuracy is important.
+The menu provides **File → Import, Recognize, Save, Settings, Exit** and **About**.
+The menu actions perform the same actions as the corresponding buttons; Recognize
+and Save become available when a document and results are ready. About shows the application
+version and author contact details, using the same layout as DocExplorer.
+
+In **File → Settings → Main**, select the interface language: English, German,
+French, Spanish, Portuguese (Portugal), Italian, Ukrainian, or Russian. **OK** saves
+a changed language, displays a restart warning, and restarts the desktop session.
+The current document closes and any running recognition stops; unsaved result edits
+must be confirmed before restarting. **Cancel**, Escape, and the window close button
+discard settings changes. An unchanged language does not require a restart.
+
+Preferences are saved per user in `%APPDATA%\FormExtractor\settings.json` on Windows,
+or `$XDG_CONFIG_HOME/FormExtractor/settings.json` (default `~/.config/FormExtractor/settings.json`)
+on other systems. The interface language does not change the OCR recognition language.
+Native file dialogs use the operating system's language; technical library diagnostics
+and recognized document contents retain their original text.
+
+`Ctrl+O` imports a document and `Ctrl+S` saves results. Previewing does not load OCR models.
+
+## Windows executable
+
+With a 64-bit Python 3.10 or 3.11 environment in `.venv`, run:
+
+```powershell
+.\build.cmd
+```
+
+The script installs the project and PyInstaller, using compatible wheels in `Whl/`
+when available and pip's configured index for missing packages. It builds the desktop
+app at `dist/FormExtractor/FormExtractor.exe` and replaces any previous build there.
+Distribute the entire `dist/FormExtractor/` folder. OCR models are downloaded on first
+recognition unless already cached; the build does not bundle model weights.
+Run `.\build.cmd --help` for usage.
+
+The build includes a PaddleX hook in `packaging/hooks/` that copies metadata for
+the OCR optional dependencies. PaddleX requires this metadata at runtime, even
+when the package code is already bundled. If an older executable reports
+"A dependency error occurred during pipeline creation", rebuild with `build.cmd`
+and replace the entire application folder (and rebuild the MSIX if used).
+Installing packages into `.venv` alone does not update an existing executable.
+
+If first recognition reports a model download failure with
+`AttributeError: 'NoneType' object has no attribute 'write'`, rebuild with
+`build.cmd` and then rebuild/reinstall the MSIX if used. The OCR adapter now
+provides writable output streams when running without a console, so PaddleX's
+download progress cannot fail on a missing `stderr`. `build_dev.cmd` packages
+the existing executable; it does not rebuild Python code. Model downloads still
+require a working internet connection. If a model host is unavailable, PaddleX
+can use an alternative source; see its
+[model source settings](https://paddlepaddle.github.io/PaddleX/3.5/en/module_usage/tutorials/ocr_modules/layout_analysis.html).
+
+If recognition reports `Cannot open file ... inference.json` even though the file
+exists, a non-ASCII Windows user-folder name can prevent Paddle's native runtime
+from opening the model. The app now uses the cache folder's ASCII Windows short
+path before importing PaddleOCR, reusing existing downloads. Rebuild with
+`build.cmd`, then rebuild/reinstall the MSIX if used. If Windows short names are
+unavailable, set `PADDLE_PDX_CACHE_HOME` to a writable ASCII-only path (for example
+`D:\FormExtractorModels`) before launching the app; models will download there.
+
+To package that build as MSIX, run `.\build_dev.cmd` for a developer-signed installer
+or `.\build_store.cmd` for a Partner Center upload package. Outputs are written to
+`store/`. The package identity is configured as `NickBoiko.FormExtractor`;
+see [MSIX packaging](store/README.md) for SDK requirements, signing, and installation.
+
+## Command line
+
+```powershell
+# Recognized text
+.\.venv\Scripts\python.exe -m formextractor form.pdf --format text -o output/result.txt
+
+# JSON with text, simple field pairs, and full OCR evidence
+.\.venv\Scripts\python.exe -m formextractor form.png -o output/result.json
+
+# Selected pages, additional clockwise rotation, and OCR language
+.\.venv\Scripts\python.exe -m formextractor form.pdf --pages 1,3-5 --rotate 90 --ocr-lang en
+
+.\.venv\Scripts\python.exe -m formextractor --help
+```
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `--format` | `json` | `text` or `json` |
+| `--output`, `-o` | stdout | UTF-8 output path |
+| `--pages` | All | One-based pages, such as `1,3-5` |
+| `--dpi` | `200` | PDF rendering resolution |
+| `--max-pixels` | `4000000` | Maximum processed page image area |
+| `--rotate` | `0` | Additional clockwise rotation: 0, 90, 180, 270 |
+| `--ocr-device` | `cpu` | Paddle device; GPU needs a compatible GPU runtime |
+| `--ocr-lang` | `en` | PaddleOCR recognition language code |
+| `--verbose` | Off | Detailed error diagnostics |
+
+PDF rotation and EXIF orientation are respected; transparency is flattened onto white. Pages are processed in document order. A failure on any page leaves an existing output file intact. Exit codes: `0` success, `1` recognition failure, `2` invalid CLI arguments, `130` cancellation.
+
+## Output and limitations
+
+JSON contains `source`, `mode: "paddle"`, `model: "PP-StructureV3"`, and `pages`. Each page includes:
+
+- `page`, `image_width`, `image_height`: page identity and processed image dimensions.
+- `text`: PaddleOCR's full reconstructed Markdown, including detected table HTML.
+- `fields`: simple explicit `Name: value` lines split into `number`, `name`, and `value`. Repeated labels and leading zeros are preserved. This is a heuristic; review the results.
+- `ocr.markdown` and `ocr.raw`: full PaddleOCR output, including detected layout regions, text coordinates, recognition scores, and table structures where available.
+
+Text export uses the complete recognized page text, including text that does not form a field pair. Coordinates refer to the processed page image after rotation and resizing.
+
+PaddleOCR recognizes content and layout; arbitrary label-to-value matching is not inferred. Labels and values in separate regions remain in the OCR text. The compatibility fields `document_type` and `tables` are currently `null` and `[]`: table structure is retained in `ocr.raw` and Markdown rather than converted into the previous normalized table schema. No field-level confidence or bounding boxes are invented.
+
+Recognition accuracy depends on scan quality and language. Small text, handwriting, merged cells, and unusual layouts need review. Pages are independent; tables spanning pages are not merged. Automatic deskew and password unlocking are not implemented.
+
+## Python API
+
+```python
+from formextractor import extract_document
+from formextractor.paddle import PaddleLayout
+
+result = extract_document("form.pdf", layout=PaddleLayout(device="cpu", lang="en"))
+for page in result.pages:
+    print(page.text)
+print(result.model_dump_json(indent=2))
+```
+
+## Development
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format --check .
+```
+
+Tests use simulated Paddle predictions for integration checks; they do not measure recognition accuracy. To generate a synthetic scanned form for real OCR testing:
+
+```powershell
+.\.venv\Scripts\python.exe examples/create_sample.py
+.\.venv\Scripts\python.exe -m formextractor output/sample/vehicle_form.pdf --format text
+```
+
+The sample includes `Skoda Yeti`, `2011`, `102000 km`, `00123`, and a two-row condition table. Generated files are under the ignored `output/` directory.
+
+Reference: [PP-StructureV3 API and result format](https://github.com/PaddlePaddle/PaddleOCR/blob/v3.3.2/docs/version3.x/pipeline_usage/PP-StructureV3.en.md).

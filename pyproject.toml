@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "formextractor"
+version = "0.1.0"
+description = "Local scanned form text recognition with PaddleOCR"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "paddleocr[doc-parser]>=3.3,<3.4",
+    "paddlepaddle>=3.2,<3.3",
+    "pydantic>=2.9,<3",
+    "PyMuPDF>=1.24,<2",
+    "Pillow>=10.4,<13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "numpy>=1.26,<3", "reportlab>=4,<5"]
+
+[project.scripts]
+formextractor = "formextractor.cli:main"
+
+[project.gui-scripts]
+formextractor-gui = "formextractor.mainform:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

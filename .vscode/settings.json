@@ -1,0 +1,43 @@
+{
+    "python.analysis.exclude": [
+        "**/.git",
+        "**/.venv",
+        "**/node_modules",
+        "**/__pycache__",
+        "**/*.egg-info",
+        "**/.pytest_cache",
+        "**/.ruff_cache",
+        "build",
+        "dist",
+        "Whl",
+        "output",
+        "tmp",
+        "store/PackageLayout-*"
+    ],
+    "files.watcherExclude": {
+        "**/.venv/**": true,
+        "**/__pycache__/**": true,
+        "**/*.egg-info/**": true,
+        "**/.pytest_cache/**": true,
+        "**/.ruff_cache/**": true,
+        "**/build/**": true,
+        "**/dist/**": true,
+        "**/Whl/**": true,
+        "**/output/**": true,
+        "**/tmp/**": true,
+        "**/store/PackageLayout-*/**": true
+    },
+    "search.exclude": {
+        "**/.venv/**": true,
+        "**/__pycache__/**": true,
+        "**/*.egg-info/**": true,
+        "**/.pytest_cache/**": true,
+        "**/.ruff_cache/**": true,
+        "**/build/**": true,
+        "**/dist/**": true,
+        "**/Whl/**": true,
+        "**/output/**": true,
+        "**/tmp/**": true,
+        "**/store/PackageLayout-*/**": true
+    }
+}
