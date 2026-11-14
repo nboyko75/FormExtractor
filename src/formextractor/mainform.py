@@ -12,7 +12,7 @@ import pymupdf
 from PIL import Image, ImageTk
 
 from .area_editor import AreaEditor
-from .areas import BatchResult, batch_text, matching_files, read_areas, source_key
+from .areas import BatchResult, BatchRow, batch_text, matching_files, read_areas, source_key
 from .dialogs import AboutForm, SettingsForm
 from .documents import iter_pages
 from .errors import ExtractionError
@@ -22,7 +22,7 @@ from .ocr_languages import OCR_LANGUAGES
 from .output import to_text, validate_output_path, write_output
 from .schema import DocumentResult
 from .settings import load_language, load_settings, save_language, update_settings
-from .widgets import ToolTip, circle_icon, zoom_icon
+from .widgets import ToolTip, circle_icon, exit_icon, zoom_icon
 
 MIN_ZOOM = 0.25
 MAX_ZOOM = 4.0
@@ -58,6 +58,7 @@ class MainForm:
         self.source: Path | None = None
         self.result: DocumentResult | BatchResult | None = None
         self.batch_sources = []
+        self._batch_started = False
         self.preview: Image.Image | None = None
         self.photo: ImageTk.PhotoImage | None = None
         self.page_number = 1
@@ -286,8 +287,10 @@ class MainForm:
         self.save_button.pack(side="left", padx=8)
         self.stop_button = ttk.Button(actions, text=self.tr("stop"), command=self.stop_recognition)
         self.stop_button.pack(side="left", padx=(0, 8))
-        self.exit_button = ttk.Button(actions, text=self.tr("exit"), command=self.close)
+        self.exit_icon = exit_icon(root)
+        self.exit_button = ttk.Button(actions, image=self.exit_icon, command=self.close)
         self.exit_button.pack(side="left")
+        ToolTip(self.exit_button, self.tr("exit"))
 
         footer = ttk.Frame(root, padding=(16, 12))
         footer.grid(row=2, column=0, sticky="ew")
@@ -551,6 +554,7 @@ class MainForm:
             if not self._persist_settings():
                 return
             self.batch_sources = sources
+            self._batch_started = False
             self.job = self.job_factory(
                 str(self.source),
                 lang=self.ocr_choices[self.ocr_language.get()],
@@ -581,6 +585,11 @@ class MainForm:
                     self.poll_id = self.root.after(100, self._poll_job)
                     return
                 kind, content = message
+                if kind == "row_result":
+                    self._display_batch_row(BatchRow.model_validate_json(content))
+                    # Let Tk paint each completed area before consuming more.
+                    self.poll_id = self.root.after(1, self._poll_job)
+                    return
                 if kind != "progress":
                     break
                 self.status.set(self.tr("recognizing_file", name=Path(content).name))
@@ -615,6 +624,29 @@ class MainForm:
         finally:
             if self.poll_id is None:
                 self._finish_job()
+
+    def _display_batch_row(self, row: BatchRow) -> None:
+        if not self._batch_started:
+            ordered = sorted(self.area_editor.areas, key=lambda area: area.number)
+            self.result = BatchResult(
+                source=str(self.source),
+                language=self.ocr_choices[self.ocr_language.get()],
+                file_mask=self.file_mask.get(),
+                areas=ordered,
+                columns=[area.number for area in ordered],
+                rows=[],
+            )
+            self._batch_started = True
+        for index, existing in enumerate(self.result.rows):
+            if existing.file == row.file:
+                self.result.rows[index] = row
+                break
+        else:
+            self.result.rows.append(row)
+        self._set_editor(self.text_editor, batch_text(self.result, self.tr))
+        self._set_editor(self.json_editor, self.result.model_dump_json(indent=2) + "\n")
+        self.text_editor.configure(state="disabled")
+        self.json_editor.configure(state="disabled")
 
     def _finish_job(self) -> None:
         if self.job is not None:

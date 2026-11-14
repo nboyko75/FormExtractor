@@ -810,3 +810,43 @@ def test_splitter_mask_and_zoom_are_saved_without_closing(form, image_path):
     assert stored["zoom_level"] == form.zoom_level
     assert stored["split_fraction"] == pytest.approx(320 / form.panes.winfo_width())
     assert form.preferences_id is None
+
+
+def test_area_results_display_before_completion_and_survive_stop(form, image_path):
+    from formextractor.areas import BatchResult, BatchRow
+
+    form.load_document(image_path)
+    add_test_area(form)
+    form.area_editor.areas.append(RecognitionArea(number=2, page=1, x1=0.1, y1=0.1, x2=0.5, y2=0.5))
+    form.job_factory = FakeJob
+    form.recognize()
+    job = form.job
+    row = BatchRow(file=str(image_path), values=["First area", None])
+    job.message = ("row_result", row.model_dump_json())
+    form.root.after_cancel(form.poll_id)
+    form._poll_job()
+    assert form.job is job and not job.closed
+    assert "First area" in form.text_editor.get("1.0", "end-1c")
+    partial = BatchResult.model_validate_json(form.json_editor.get("1.0", "end-1c"))
+    assert partial.rows == [row]
+    assert form.text_editor.cget("state") == "disabled"
+    assert form.save_button.instate(["disabled"])
+
+    row.values[1] = "Second area"
+    job.message = ("row_result", row.model_dump_json())
+    form.root.after_cancel(form.poll_id)
+    form._poll_job()
+    assert len(form.result.rows) == 1
+    assert form.result.rows[0].values == ["First area", "Second area"]
+    form.stop_recognition()
+    assert "Second area" in form.text_editor.get("1.0", "end-1c")
+    assert form.save_button.instate(["!disabled"])
+
+    # A new run replaces partial rows instead of retaining a prior run's values.
+    form.recognize()
+    row.values = ["New run", None]
+    form.job.message = ("row_result", row.model_dump_json())
+    form.root.after_cancel(form.poll_id)
+    form._poll_job()
+    assert form.result.rows == [row]
+    assert "Second area" not in form.text_editor.get("1.0", "end-1c")

@@ -20,6 +20,7 @@ def recognize_worker(
                 mask,
                 language=lang,
                 on_file=lambda filename: messages.put(("progress", filename)),
+                on_row=lambda row: messages.put(("row_result", row.model_dump_json())),
             )
             messages.put(("batch_result", result.model_dump_json()))
             return

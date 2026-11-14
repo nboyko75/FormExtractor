@@ -41,6 +41,26 @@ def circle_icon(owner: tk.Misc, *, plus: bool, disabled: bool = False) -> ImageT
     return result
 
 
+def exit_icon(owner: tk.Misc) -> ImageTk.PhotoImage:
+    """Draw a door and red exit arrow like DocExplorer's wx.ART_QUIT icon."""
+    size = max(20, round(20 * owner.winfo_fpixels("1i") / 96))
+    image = Image.new("RGBA", (80, 80))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((5, 4, 51, 75), fill="#5c6063", outline="#34383b", width=3)
+    draw.rectangle((11, 10, 45, 69), fill="#f0f1f2")
+    draw.polygon(((11, 10), (38, 19), (38, 63), (11, 69)), fill="#b8bdc2")
+    draw.line((11, 10, 38, 19, 38, 63, 11, 69), fill="#858b91", width=2)
+    draw.ellipse((29, 39, 33, 44), fill="#555b61")
+    arrow = ((75, 31), (57, 31), (57, 20), (36, 40), (57, 60), (57, 49), (75, 49))
+    draw.polygon(arrow, fill="#d62828", outline="#8e1717", width=3)
+    draw.line((72, 34, 54, 34, 54, 28, 41, 40), fill="#f47b72", width=2)
+    resized = image.resize((size, size), Image.Resampling.LANCZOS)
+    result = ImageTk.PhotoImage(resized, master=owner)
+    resized.close()
+    image.close()
+    return result
+
+
 class ToolTip:
     def __init__(self, widget: ttk.Widget, text: str) -> None:
         self.widget = widget

@@ -10,6 +10,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from .area_matching import AreaTemplate, PageMatcher
 from .documents import IMAGE_EXTENSIONS, iter_pages
 from .errors import ExtractionError
 from .paddle import PaddleLayout
@@ -109,8 +110,9 @@ def recognize_batch(
     language: str = "en",
     layout=None,
     on_file: Callable[[str], None] | None = None,
+    on_row: Callable[[BatchRow], None] | None = None,
 ) -> BatchResult:
-    """Apply the template's relative page rectangles to each file, in stable order."""
+    """Locate, orient, and recognize each template area, publishing partial rows."""
     if not areas:
         raise ExtractionError("Add at least one recognition area before recognizing.")
     if not sources:
@@ -121,32 +123,57 @@ def recognize_batch(
     if layout is None:
         layout = PaddleLayout(lang=language)
     required_pages = {area.page for area in ordered}
+    templates = {}
+    template_errors = {}
+    try:
+        with closing(iter_pages(Path(source))) as pages:
+            for page in pages:
+                for area in ordered:
+                    if area.page == page.number:
+                        templates[area.number] = AreaTemplate(page.image, area)
+                if page.number >= max(required_pages):
+                    break
+    except Exception as exc:
+        template_errors = {area.number: str(exc) for area in ordered}
     rows = []
     for filename in sources:
         if on_file is not None:
             on_file(filename)
         row = BatchRow(file=filename, values=[None] * len(ordered))
+        errors = []
         seen = set()
         try:
             with closing(iter_pages(Path(filename))) as pages:
                 for page in pages:
                     seen.add(page.number)
+                    matcher = PageMatcher(page.image)
                     for index, area in enumerate(ordered):
                         if area.page != page.number:
                             continue
-                        crop = page.image.crop(area.pixel_box(page.image.width, page.image.height))
                         try:
-                            row.values[index] = layout.analyze(crop).markdown.strip()
-                        finally:
-                            crop.close()
+                            if area.number in template_errors:
+                                raise ExtractionError(template_errors[area.number])
+                            template = templates.get(area.number)
+                            if template is None:
+                                raise ExtractionError(f"Missing template page: {area.page}")
+                            with matcher.crop(template) as crop:
+                                row.values[index] = layout.analyze(crop).markdown.strip()
+                        except Exception as exc:
+                            errors.append(f"Area {area.number}: {exc}")
+                            row.error = "; ".join(errors)
+                        if on_row is not None:
+                            on_row(row.model_copy(deep=True))
                     if page.number >= max(required_pages):
                         break
             missing = sorted(required_pages - seen)
             if missing:
-                row.error = "Missing template pages: " + ", ".join(map(str, missing))
+                errors.append("Missing template pages: " + ", ".join(map(str, missing)))
         except Exception as exc:
-            row.error = str(exc)
+            errors.append(str(exc))
+        row.error = "; ".join(errors) or None
         rows.append(row)
+        if on_row is not None:
+            on_row(row.model_copy(deep=True))
     return BatchResult(
         source=source,
         language=language,

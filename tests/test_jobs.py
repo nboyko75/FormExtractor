@@ -3,7 +3,7 @@ import time
 from queue import Queue
 from types import SimpleNamespace
 
-from formextractor.areas import BatchResult, RecognitionArea
+from formextractor.areas import BatchResult, BatchRow, RecognitionArea
 from formextractor.jobs import RecognitionJob, recognize_worker
 
 
@@ -67,8 +67,9 @@ def test_spawned_batch_worker_preserves_area_template_and_reports_file_errors(tm
         progress = []
         while message is None and time.monotonic() < deadline:
             message = job.poll()
-            if message is not None and message[0] == "progress":
-                progress.append(message[1])
+            if message is not None and message[0] in {"progress", "row_result"}:
+                if message[0] == "progress":
+                    progress.append(message[1])
                 message = None
             time.sleep(0.02)
         assert message is not None and message[0] == "batch_result"
@@ -125,3 +126,23 @@ def test_stop_ends_a_running_worker_without_waiting_for_its_work():
         assert job._closed
     finally:
         job.close()
+
+
+def test_worker_streams_partial_rows_before_batch_completion(monkeypatch):
+    area = RecognitionArea(number=1, page=1, x1=0, y1=0, x2=1, y2=1)
+    row = BatchRow(file="scan.png", values=["Recognized area"])
+
+    def recognize(source, sources, areas, mask, *, language, on_file, on_row):
+        on_file(sources[0])
+        on_row(row)
+        return BatchResult(
+            source=source, language=language, file_mask=mask, areas=areas, columns=[1], rows=[row]
+        )
+
+    monkeypatch.setattr("formextractor.jobs.recognize_batch", recognize)
+    messages = Queue()
+    recognize_worker("scan.png", messages, areas=[area.model_dump()], sources=["scan.png"])
+    assert messages.get_nowait() == ("progress", "scan.png")
+    assert messages.get_nowait() == ("row_result", row.model_dump_json())
+    assert messages.get_nowait()[0] == "batch_result"
+    assert messages.empty()

@@ -47,13 +47,17 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   file's folder. Use `*.pdf`, `scan*.png`, or multiple masks such as `*.png;*.jpg`.
   Matching is case-insensitive, alphabetical, and does not recurse into subfolders.
   The default `*` matches all supported documents and images in that folder.
-- **Recognize** requires at least one area. It applies the imported file's numbered
-  areas to the same page numbers in every matching file, recognizing only those crops
-  with the selected language. Recognition runs in a separate process, and the status
-  bar displays the name of the file currently being processed.
+- **Recognize** requires at least one area. It searches for each selected area's image
+  on the corresponding page of every matching file, allowing rotation, movement, and
+  changes in scale. Matched crops are rotated back to the template's orientation and
+  recognized with the selected language. Results appear after each area, then processing
+  continues through the remaining areas and files. Unmatched areas are reported as errors
+  without stopping the batch. Select distinctive areas with enough visual detail to match;
+  small or repetitive regions may not be identifiable. Recognition runs in a separate
+  process, and the status bar displays the file currently being processed.
 - **Stop**, immediately before Exit, terminates the recognition worker without waiting
-  for the current page to finish. The unfinished batch is discarded; any previously
-  completed results remain available. Recognition can be started again immediately.
+  for the current page to finish. Results already displayed remain available for saving;
+  unfinished areas remain empty. Recognition can be started again immediately.
 - The right pane opens with **Text** first, followed by **JSON**. Results are a table
   with one row per file and one column per area, ordered by area number. Both are editable;
   edits to each format are independent, and Save defaults to the selected tab's format.
