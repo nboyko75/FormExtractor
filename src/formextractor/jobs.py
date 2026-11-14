@@ -9,7 +9,7 @@ from .pipeline import extract_document
 
 
 def recognize_worker(
-    source: str, messages, lang: str = "en", *, areas=None, sources=None, mask="*"
+    source: str, messages, lang: str = "en", *, areas=None, sources=None, mask="*", save_areas=False
 ) -> None:
     try:
         if areas is not None:
@@ -19,6 +19,7 @@ def recognize_worker(
                 [RecognitionArea.model_validate(area) for area in areas],
                 mask,
                 language=lang,
+                save_areas=save_areas,
                 on_file=lambda filename: messages.put(("progress", filename)),
                 on_row=lambda row: messages.put(("row_result", row.model_dump_json())),
             )
@@ -32,7 +33,7 @@ def recognize_worker(
 
 class RecognitionJob:
     def __init__(
-        self, source: str, *, lang: str = "en", areas=None, sources=None, mask="*"
+        self, source: str, *, lang: str = "en", areas=None, sources=None, mask="*", save_areas=False
     ) -> None:
         context = multiprocessing.get_context("spawn")
         self.messages = context.Queue()
@@ -40,7 +41,7 @@ class RecognitionJob:
         self.process = context.Process(
             target=recognize_worker,
             args=(source, self.messages, lang),
-            kwargs={"areas": areas, "sources": sources, "mask": mask},
+            kwargs={"areas": areas, "sources": sources, "mask": mask, "save_areas": save_areas},
             daemon=True,
         )
 

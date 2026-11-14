@@ -127,3 +127,199 @@ def test_no_area_or_empty_batch_never_runs_ocr():
         recognize_batch("scan.png", ["scan.png"], [], "*", layout=ColorOCR())
     with pytest.raises(ExtractionError, match="No supported files"):
         recognize_batch("scan.png", [], [area()], "*", layout=ColorOCR())
+
+
+@pytest.mark.parametrize("save_areas", [False, True])
+def test_save_area_images_contains_only_crops_in_number_order(
+    tmp_path, no_text_detector, save_areas
+):
+    paths = [tmp_path / name for name in ("first.png", "second.png")]
+    with Image.new("RGB", (120, 80), "blue") as image:
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((0, 0, 39, 79), fill="red")
+        draw.rectangle((40, 0, 79, 79), fill="green")
+        for path in paths:
+            image.save(path)
+    originals = [path.read_bytes() for path in paths]
+    selected = [area(3, x2=1 / 3), area(1, x1=1 / 3, x2=2 / 3)]
+
+    def on_file(filename):
+        if filename == str(paths[1]):
+            assert (tmp_path / "first_areas.png").exists() is save_areas
+
+    result = recognize_batch(
+        str(paths[0]),
+        list(map(str, paths)),
+        selected,
+        "*.png",
+        layout=ColorOCR(),
+        text_detector=no_text_detector,
+        save_areas=save_areas,
+        on_file=on_file,
+    )
+    assert all(row.error is None for row in result.rows)
+    assert [path.read_bytes() for path in paths] == originals
+    for path in paths:
+        destination = path.with_name(path.stem + "_areas.png")
+        assert destination.exists() is save_areas
+        if save_areas:
+            with Image.open(destination) as saved:
+                assert saved.size == (40, 160)
+                assert saved.getpixel((20, 20)) == (0, 128, 0)
+                assert saved.getpixel((20, 100)) == (255, 0, 0)
+                assert set(color for _, color in saved.getcolors()) == {(0, 128, 0), (255, 0, 0)}
+    assert matching_files(paths[0], "*") == paths
+
+
+def test_save_areas_includes_matches_even_when_ocr_fails(tmp_path, no_text_detector):
+    source = tmp_path / "source.png"
+    with Image.new("RGB", (120, 80), "red") as image:
+        image.save(source)
+
+    class BrokenOCR:
+        def analyze(self, image):
+            raise RuntimeError("OCR failed")
+
+    result = recognize_batch(
+        str(source),
+        [str(source)],
+        [area()],
+        "*.png",
+        save_areas=True,
+        layout=BrokenOCR(),
+        text_detector=no_text_detector,
+    )
+    assert "OCR failed" in result.rows[0].error
+    with Image.open(tmp_path / "source_areas.png") as saved:
+        assert saved.size == (60, 80)
+        assert saved.getpixel((0, 0)) == (255, 0, 0)
+
+
+def test_area_image_save_failure_keeps_results_and_continues(
+    tmp_path, no_text_detector, monkeypatch
+):
+    from formextractor import areas as module
+
+    paths = [tmp_path / name for name in ("first.png", "second.png")]
+    with Image.new("RGB", (120, 80), "red") as image:
+        for path in paths:
+            image.save(path)
+    real_save = module._save_area_image
+
+    def save(destination, crops):
+        if destination.name == "first_areas.png":
+            raise PermissionError("Read-only output")
+        real_save(destination, crops)
+
+    monkeypatch.setattr(module, "_save_area_image", save)
+    result = recognize_batch(
+        str(paths[0]),
+        list(map(str, paths)),
+        [area()],
+        "*.png",
+        save_areas=True,
+        layout=ColorOCR(),
+        text_detector=no_text_detector,
+    )
+    assert "Cannot save areas image: Read-only output" in result.rows[0].error
+    assert result.rows[0].values == ["(255, 0, 0)"]
+    assert result.rows[1].error is None
+    assert (tmp_path / "second_areas.png").exists()
+
+
+def test_area_images_never_overwrite_batch_inputs(tmp_path, no_text_detector):
+    source = tmp_path / "scan.png"
+    protected = tmp_path / "scan_areas.png"
+    with Image.new("RGB", (120, 80), "red") as image:
+        image.save(source)
+        image.save(protected)
+    original = protected.read_bytes()
+    result = recognize_batch(
+        str(source),
+        [str(source), str(protected)],
+        [area()],
+        "*.png",
+        save_areas=True,
+        layout=ColorOCR(),
+        text_detector=no_text_detector,
+    )
+    assert "must not overwrite the input document" in result.rows[0].error
+    assert protected.read_bytes() == original
+
+
+def test_save_areas_combines_multiple_pages(tmp_path, no_text_detector):
+    source = tmp_path / "scan.tiff"
+    with (
+        Image.new("RGB", (120, 80), "red") as first,
+        Image.new("RGB", (120, 80), "green") as second,
+    ):
+        first.save(source, save_all=True, append_images=[second])
+    result = recognize_batch(
+        str(source),
+        [str(source)],
+        [area(1), area(2, page=2)],
+        "*.tiff",
+        save_areas=True,
+        layout=ColorOCR(),
+        text_detector=no_text_detector,
+    )
+    assert result.rows[0].error is None
+    with Image.open(tmp_path / "scan_areas.png") as saved:
+        assert saved.size == (60, 160)
+        assert saved.getpixel((0, 0)) == (255, 0, 0)
+        assert saved.getpixel((0, 80)) == (0, 128, 0)
+
+
+def test_no_matching_areas_does_not_create_image(tmp_path, no_text_detector):
+    source, target = tmp_path / "source.png", tmp_path / "target.png"
+    with Image.new("RGB", (120, 80), "red") as image:
+        image.save(source)
+    with Image.new("RGB", (120, 80), "white") as image:
+        image.save(target)
+    result = recognize_batch(
+        str(source),
+        [str(target)],
+        [area()],
+        "*.png",
+        save_areas=True,
+        layout=ColorOCR(),
+        text_detector=no_text_detector,
+    )
+    assert "No reliable image match" in result.rows[0].error
+    assert not (tmp_path / "target_areas.png").exists()
+
+
+def test_conflicting_area_image_names_are_reported(tmp_path, no_text_detector):
+    paths = [tmp_path / name for name in ("scan.png", "scan.bmp")]
+    with Image.new("RGB", (120, 80), "red") as image:
+        for path in paths:
+            image.save(path)
+    result = recognize_batch(
+        str(paths[0]),
+        list(map(str, paths)),
+        [area()],
+        "*",
+        save_areas=True,
+        layout=ColorOCR(),
+        text_detector=no_text_detector,
+    )
+    assert all("same areas image filename" in row.error for row in result.rows)
+    assert not (tmp_path / "scan_areas.png").exists()
+
+
+def test_failed_image_write_preserves_previous_export(tmp_path, monkeypatch):
+    from formextractor.areas import _save_area_image
+
+    destination = tmp_path / "scan_areas.png"
+    destination.write_bytes(b"previous export")
+
+    def failed_save(self, handle, **kwargs):
+        handle.write(b"incomplete image")
+        raise OSError("Disk full")
+
+    monkeypatch.setattr(Image.Image, "save", failed_save)
+    with Image.new("RGB", (20, 20), "red") as crop:
+        with pytest.raises(OSError, match="Disk full"):
+            _save_area_image(destination, {1: crop})
+    assert destination.read_bytes() == b"previous export"
+    assert list(tmp_path.iterdir()) == [destination]

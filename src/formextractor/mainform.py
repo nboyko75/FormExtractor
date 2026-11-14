@@ -77,6 +77,9 @@ class MainForm:
         self.ocr_language = tk.StringVar(master=root, value=selected_language)
         mask = self.preferences.get("file_mask", "*")
         self.file_mask = tk.StringVar(master=root, value=mask if isinstance(mask, str) else "*")
+        self.save_areas = tk.BooleanVar(
+            master=root, value=self.preferences.get("save_areas") is True
+        )
         self.job = None
         self.poll_id = None
         self.resize_id = None
@@ -105,7 +108,7 @@ class MainForm:
         root.bind("<Configure>", self._remember_geometry, add=True)
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(1, weight=1)
+        root.rowconfigure(0, weight=1)
 
         self.menu = tk.Menu(root, tearoff=False)
         self.file_menu = tk.Menu(self.menu, tearoff=False)
@@ -121,17 +124,9 @@ class MainForm:
         self.menu.add_command(label=self.tr("about"), command=self.show_about)
         root.configure(menu=self.menu)
 
-        header = ttk.Frame(root, padding=(16, 12))
-        header.grid(row=0, column=0, sticky="ew")
-        tagline = ttk.Label(header, text=self.tr("tagline"), wraplength=500)
-        tagline.pack(side="left")
-        header.bind(
-            "<Configure>", lambda event: tagline.configure(wraplength=max(200, event.width - 32))
-        )
-
         panes = ttk.Panedwindow(root, orient="horizontal")
         self.panes = panes
-        panes.grid(row=1, column=0, sticky="nsew", padx=16)
+        panes.grid(row=0, column=0, sticky="nsew", padx=16, pady=(12, 0))
         left = ttk.Frame(panes, padding=(0, 0, 8, 0))
         right = ttk.Frame(panes, padding=(8, 0, 0, 0))
         panes.add(left, weight=1)
@@ -273,11 +268,18 @@ class MainForm:
             textvariable=self.ocr_language,
             values=list(self.ocr_choices),
             state="readonly",
-            width=30,
+            width=18,
             height=18,
         )
         self.ocr_language_box.grid(row=0, column=2, sticky="ew")
         self.ocr_language_box.bind("<<ComboboxSelected>>", self._schedule_preferences_save)
+        self.save_areas_checkbox = ttk.Checkbutton(
+            source_actions,
+            text=self.tr("save_areas"),
+            variable=self.save_areas,
+            command=self._schedule_preferences_save,
+        )
+        self.save_areas_checkbox.grid(row=0, column=3, sticky="e", padx=(8, 0))
 
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
@@ -288,14 +290,9 @@ class MainForm:
         self.notebook.grid(row=1, column=0, sticky="nsew")
         self.text_editor = self._add_editor(self.tr("text"), wrap="none")
         self.json_editor = self._add_editor("JSON", wrap="none")
-        edit_hint = ttk.Label(right, text=self.tr("separate_edits"), wraplength=350)
-        edit_hint.grid(row=2, column=0, sticky="w", pady=(8, 4))
-        right.bind(
-            "<Configure>", lambda event: edit_hint.configure(wraplength=max(120, event.width - 16))
-        )
-        ttk.Label(right, text=self.tr("engine")).grid(row=3, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(right, text=self.tr("engine")).grid(row=2, column=0, sticky="w", pady=(8, 8))
         actions = ttk.Frame(right)
-        actions.grid(row=4, column=0, sticky="ew", pady=(4, 0))
+        actions.grid(row=3, column=0, sticky="ew", pady=(4, 0))
         self.recognize_button = ttk.Button(
             actions, text=self.tr("recognize"), command=self.recognize
         )
@@ -310,7 +307,7 @@ class MainForm:
         ToolTip(self.exit_button, self.tr("exit"))
 
         footer = ttk.Frame(root, padding=(16, 12))
-        footer.grid(row=2, column=0, sticky="ew")
+        footer.grid(row=1, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
         ttk.Label(footer, textvariable=self.status, width=1).grid(row=0, column=0, sticky="ew")
         self.progress = ttk.Progressbar(footer, mode="indeterminate", length=120)
@@ -386,6 +383,7 @@ class MainForm:
         self._update_zoom_controls()
         for widget, enabled in [
             (self.import_button, not busy),
+            (self.save_areas_checkbox, not busy),
             (self.recognize_button, can_recognize),
             (self.save_button, self.result is not None and not busy),
             (self.stop_button, busy),
@@ -593,6 +591,7 @@ class MainForm:
                 areas=[area.model_dump() for area in self.area_editor.areas],
                 sources=[str(source) for source in sources],
                 mask=self.file_mask.get(),
+                save_areas=self.save_areas.get(),
             )
             self.job.start()
         except Exception as exc:
@@ -802,6 +801,7 @@ class MainForm:
             },
             "ocr_language": self.ocr_choices.get(self.ocr_language.get(), "en"),
             "file_mask": self.file_mask.get(),
+            "save_areas": self.save_areas.get(),
             "zoom_level": self.zoom_level,
         }
         if self.split_initialized and self.panes.winfo_width() > 1:

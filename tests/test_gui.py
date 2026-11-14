@@ -554,7 +554,13 @@ def test_source_actions_and_zoom_layout(form):
     assert form.ocr_language_label.grid_info()["row"] == form.ocr_language_box.grid_info()["row"]
     assert form.stop_button.winfo_rootx() < form.exit_button.winfo_rootx()
     assert form.stop_button.winfo_rootx() < form.save_button.winfo_rootx()
-    assert form.ocr_language_box.cget("width") == 30
+    assert form.save_areas_checkbox.master == form.import_button.master
+    assert form.save_areas_checkbox.grid_info()["row"] == form.import_button.grid_info()["row"]
+    assert form.save_areas_checkbox.winfo_rootx() > form.ocr_language_box.winfo_rootx()
+    assert form.save_areas_checkbox.winfo_rootx() + form.save_areas_checkbox.winfo_width() <= (
+        form.save_areas_checkbox.master.winfo_rootx()
+        + form.save_areas_checkbox.master.winfo_width()
+    )
     assert form.zoom_in_button.winfo_rooty() > (
         form.canvas.winfo_rooty() + form.canvas.winfo_height()
     )
@@ -665,6 +671,7 @@ def test_window_language_mask_and_templates_survive_reopen(desktop, tmp_path, im
         next(label for label, code in window.ocr_choices.items() if code == "uk")
     )
     window.file_mask.set("scan*.png")
+    window.save_areas_checkbox.invoke()
     window.zoom(2)
     zoom = window.zoom_level
     window.panes.sashpos(0, 400)
@@ -679,6 +686,7 @@ def test_window_language_mask_and_templates_survive_reopen(desktop, tmp_path, im
         assert root.geometry() == geometry
         assert reopened.ocr_choices[reopened.ocr_language.get()] == "uk"
         assert reopened.file_mask.get() == "scan*.png"
+        assert reopened.save_areas.get() is True
         assert reopened.zoom_level == zoom
         assert reopened.panes.sashpos(0) / reopened.panes.winfo_width() == pytest.approx(
             fraction, abs=0.005
@@ -797,11 +805,14 @@ def test_masked_batch_request_displays_and_saves_tabular_results(
     (tmp_path / "scan2.png").write_bytes(image_path.read_bytes())
     (tmp_path / "ignore.png").write_bytes(image_path.read_bytes())
     form.file_mask.set("scan*.png")
+    form.save_areas.set(True)
     form.job_factory = FakeJob
     form.recognize()
     job = form.job
     assert [Path(path).name for path in job.options["sources"]] == ["scan.png", "scan2.png"]
     assert job.options["mask"] == "scan*.png"
+    assert job.options["save_areas"] is True
+    assert form.save_areas_checkbox.instate(["disabled"])
     assert job.options["areas"] == [form.area_editor.areas[0].model_dump()]
     assert form.mask_entry.instate(["disabled"])
     assert form.add_area_button.instate(["disabled"])

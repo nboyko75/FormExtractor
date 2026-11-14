@@ -3,16 +3,20 @@
 import fnmatch
 import math
 import os
+import tempfile
+from collections import Counter
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 from typing import Literal
 
+from PIL import Image
 from pydantic import Field, model_validator
 
 from .area_matching import AreaTemplate, PageMatcher
 from .documents import IMAGE_EXTENSIONS, iter_pages
 from .errors import ExtractionError
+from .output import validate_output_path
 from .paddle import PaddleLayout, PaddleTextDetector
 from .schema import StrictModel
 
@@ -91,6 +95,7 @@ def matching_files(source: Path, mask: str) -> list[Path]:
             path.resolve()
             for path in source.resolve().parent.iterdir()
             if path.is_file()
+            and not path.name.casefold().endswith("_areas.png")
             and path.suffix.lower() in IMAGE_EXTENSIONS | {".pdf"}
             and any(
                 fnmatch.fnmatchcase(path.name.casefold(), pattern.casefold())
@@ -101,6 +106,31 @@ def matching_files(source: Path, mask: str) -> list[Path]:
     )
 
 
+def area_image_path(source: Path) -> Path:
+    return source.with_name(source.stem + "_areas.png")
+
+
+def _save_area_image(destination: Path, crops: dict[int, Image.Image]) -> None:
+    """Stack only matched crops and atomically publish one PNG per source file."""
+    ordered = [crops[number] for number in sorted(crops)]
+    width = max(crop.width for crop in ordered)
+    height = sum(crop.height for crop in ordered)
+    temporary = None
+    try:
+        with Image.new("RGB", (width, height), "white") as combined:
+            top = 0
+            for crop in ordered:
+                combined.paste(crop, (0, top))
+                top += crop.height
+            with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as handle:
+                temporary = Path(handle.name)
+                combined.save(handle, format="PNG")
+        os.replace(temporary, destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def recognize_batch(
     source: str,
     sources: list[str],
@@ -108,6 +138,7 @@ def recognize_batch(
     mask: str,
     *,
     language: str = "en",
+    save_areas: bool = False,
     layout=None,
     text_detector=None,
     on_file: Callable[[str], None] | None = None,
@@ -144,12 +175,16 @@ def recognize_batch(
     except Exception as exc:
         template_errors = {area.number: str(exc) for area in ordered}
     rows = []
+    output_counts = (
+        Counter(source_key(area_image_path(Path(name))) for name in sources) if save_areas else {}
+    )
     for filename in sources:
         if on_file is not None:
             on_file(filename)
         row = BatchRow(file=filename, values=[None] * len(ordered))
         errors = []
         seen = set()
+        crops = {}
         try:
             with closing(iter_pages(Path(filename))) as pages:
                 for page in pages:
@@ -167,6 +202,8 @@ def recognize_batch(
                             if template is None:
                                 raise ExtractionError(f"Missing template page: {area.page}")
                             with matcher.crop(template) as crop:
+                                if save_areas:
+                                    crops[area.number] = crop.copy()
                                 row.values[index] = layout.analyze(crop).markdown.strip()
                         except Exception as exc:
                             errors.append(f"Area {area.number}: {exc}")
@@ -180,6 +217,19 @@ def recognize_batch(
                 errors.append("Missing template pages: " + ", ".join(map(str, missing)))
         except Exception as exc:
             errors.append(str(exc))
+        try:
+            if crops:
+                destination = area_image_path(Path(filename))
+                if output_counts[source_key(destination)] > 1:
+                    raise ExtractionError("Multiple input files have the same areas image filename")
+                for input_name in [source, *sources]:
+                    validate_output_path(destination, Path(input_name))
+                _save_area_image(destination, crops)
+        except Exception as exc:
+            errors.append(f"Cannot save areas image: {exc}")
+        finally:
+            for crop in crops.values():
+                crop.close()
         row.error = "; ".join(errors) or None
         rows.append(row)
         if on_row is not None:

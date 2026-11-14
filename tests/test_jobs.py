@@ -49,9 +49,10 @@ def test_job_passes_selected_language_to_spawned_process(monkeypatch):
         "formextractor.jobs.multiprocessing.get_context",
         lambda method: SimpleNamespace(Queue=lambda: messages, Process=process),
     )
-    RecognitionJob("scan.pdf", lang="de")
+    RecognitionJob("scan.pdf", lang="de", save_areas=True)
     assert processes[0]["target"] is recognize_worker
     assert processes[0]["args"] == ("scan.pdf", messages, "de")
+    assert processes[0]["kwargs"]["save_areas"] is True
 
 
 def test_spawned_batch_worker_preserves_area_template_and_reports_file_errors(tmp_path):
@@ -132,7 +133,8 @@ def test_worker_streams_partial_rows_before_batch_completion(monkeypatch):
     area = RecognitionArea(number=1, page=1, x1=0, y1=0, x2=1, y2=1)
     row = BatchRow(file="scan.png", values=["Recognized area"])
 
-    def recognize(source, sources, areas, mask, *, language, on_file, on_row):
+    def recognize(source, sources, areas, mask, *, language, save_areas, on_file, on_row):
+        assert save_areas is True
         on_file(sources[0])
         on_row(row)
         return BatchResult(
@@ -141,7 +143,9 @@ def test_worker_streams_partial_rows_before_batch_completion(monkeypatch):
 
     monkeypatch.setattr("formextractor.jobs.recognize_batch", recognize)
     messages = Queue()
-    recognize_worker("scan.png", messages, areas=[area.model_dump()], sources=["scan.png"])
+    recognize_worker(
+        "scan.png", messages, areas=[area.model_dump()], sources=["scan.png"], save_areas=True
+    )
     assert messages.get_nowait() == ("progress", "scan.png")
     assert messages.get_nowait() == ("row_result", row.model_dump_json())
     assert messages.get_nowait()[0] == "batch_result"

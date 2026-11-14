@@ -57,6 +57,14 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   without stopping the batch. Select distinctive areas with enough visual detail to match;
   text-only, small, or repetitive regions may not be identifiable. Recognition runs in a
   separate process, and the status bar displays the file currently being processed.
+- **Save areas**, on the right of the Import row, saves the matched crops after each file
+  finishes recognition. One PNG is written beside the source, for example `invoice_areas.png`
+  for `invoice.pdf`. Crops are stacked in area-number order, including matches from different
+  pages, with white padding when widths differ. Unmatched regions are omitted. Matching crops
+  are still saved if OCR fails for an area; failures remain in the results. The checkbox is
+  remembered between sessions. Generated `*_areas.png` files are excluded from batch inputs.
+  Existing output images are replaced only after the new PNG is complete; source files are
+  protected, and conflicting output names are reported as errors.
 - **Stop**, immediately before Save, terminates the recognition worker without waiting
   for the current page to finish. Results already displayed remain available for saving;
   unfinished areas remain empty. Recognition can be started again immediately.
