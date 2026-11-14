@@ -13,7 +13,7 @@ from pydantic import Field, model_validator
 from .area_matching import AreaTemplate, PageMatcher
 from .documents import IMAGE_EXTENSIONS, iter_pages
 from .errors import ExtractionError
-from .paddle import PaddleLayout
+from .paddle import PaddleLayout, PaddleTextDetector
 from .schema import StrictModel
 
 
@@ -109,6 +109,7 @@ def recognize_batch(
     *,
     language: str = "en",
     layout=None,
+    text_detector=None,
     on_file: Callable[[str], None] | None = None,
     on_row: Callable[[BatchRow], None] | None = None,
 ) -> BatchResult:
@@ -122,15 +123,22 @@ def recognize_batch(
         raise ExtractionError("Recognition area numbers must be unique")
     if layout is None:
         layout = PaddleLayout(lang=language)
+    if text_detector is None:
+        text_detector = PaddleTextDetector()
     required_pages = {area.page for area in ordered}
     templates = {}
     template_errors = {}
     try:
         with closing(iter_pages(Path(source))) as pages:
             for page in pages:
+                text_regions = (
+                    text_detector.detect(page.image) if page.number in required_pages else ()
+                )
                 for area in ordered:
                     if area.page == page.number:
-                        templates[area.number] = AreaTemplate(page.image, area)
+                        templates[area.number] = AreaTemplate(
+                            page.image, area, text_regions=text_regions
+                        )
                 if page.number >= max(required_pages):
                     break
     except Exception as exc:
@@ -146,7 +154,9 @@ def recognize_batch(
             with closing(iter_pages(Path(filename))) as pages:
                 for page in pages:
                     seen.add(page.number)
-                    matcher = PageMatcher(page.image)
+                    if page.number not in required_pages:
+                        continue
+                    matcher = PageMatcher(page.image, text_regions=text_detector.detect(page.image))
                     for index, area in enumerate(ordered):
                         if area.page != page.number:
                             continue

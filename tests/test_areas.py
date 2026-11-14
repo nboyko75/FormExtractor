@@ -33,7 +33,7 @@ class ColorOCR:
         return LayoutResult(markdown=str(colors[0][1]), data={})
 
 
-def test_batch_crops_only_areas_scales_coordinates_and_orders_columns(tmp_path):
+def test_batch_crops_only_areas_scales_coordinates_and_orders_columns(tmp_path, no_text_detector):
     for name, size in [("b.png", (240, 160)), ("a.png", (120, 80))]:
         with Image.new("RGB", size, "red") as image:
             ImageDraw.Draw(image).rectangle((size[0] // 2, 0, size[0], size[1]), fill="green")
@@ -49,6 +49,7 @@ def test_batch_crops_only_areas_scales_coordinates_and_orders_columns(tmp_path):
         "*.png",
         language="uk",
         layout=layout,
+        text_detector=no_text_detector,
         on_file=lambda filename: notices.append((filename, len(layout.sizes))),
     )
     assert result.columns == [1, 3]
@@ -64,7 +65,9 @@ def test_batch_crops_only_areas_scales_coordinates_and_orders_columns(tmp_path):
     assert lines[2] == ["a.png", "(0, 128, 0)", "(255, 0, 0)"]
 
 
-def test_batch_missing_pages_and_unreadable_files_do_not_stop_other_files(tmp_path):
+def test_batch_missing_pages_and_unreadable_files_do_not_stop_other_files(
+    tmp_path, no_text_detector
+):
     good = tmp_path / "good.pdf"
     with pymupdf.open() as document:
         document.new_page(width=120, height=80)
@@ -80,6 +83,7 @@ def test_batch_missing_pages_and_unreadable_files_do_not_stop_other_files(tmp_pa
         [area(1), area(2, page=2)],
         "*",
         layout=ColorOCR(),
+        text_detector=no_text_detector,
     )
     assert result.rows[0].error and result.rows[0].values == [None, None]
     assert result.rows[1].error == "Missing template pages: 2"

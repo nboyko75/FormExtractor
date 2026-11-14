@@ -49,13 +49,15 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   The default `*` matches all supported documents and images in that folder.
 - **Recognize** requires at least one area. It searches for each selected area's image
   on the corresponding page of every matching file, allowing rotation, movement, and
-  changes in scale. Matched crops are rotated back to the template's orientation and
-  recognized with the selected language. Results appear after each area, then processing
+  changes in scale. Detected text is excluded from image matching; borders and graphics
+  identify the area even when its text changes. Matched crops retain their original text
+  and are rotated back to the template's orientation for recognition with the selected
+  language. Results appear after each area, then processing
   continues through the remaining areas and files. Unmatched areas are reported as errors
   without stopping the batch. Select distinctive areas with enough visual detail to match;
-  small or repetitive regions may not be identifiable. Recognition runs in a separate
-  process, and the status bar displays the file currently being processed.
-- **Stop**, immediately before Exit, terminates the recognition worker without waiting
+  text-only, small, or repetitive regions may not be identifiable. Recognition runs in a
+  separate process, and the status bar displays the file currently being processed.
+- **Stop**, immediately before Save, terminates the recognition worker without waiting
   for the current page to finish. Results already displayed remain available for saving;
   unfinished areas remain empty. Recognition can be started again immediately.
 - The right pane opens with **Text** first, followed by **JSON**. Results are a table

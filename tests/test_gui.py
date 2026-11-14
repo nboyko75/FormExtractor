@@ -551,7 +551,7 @@ def test_source_actions_and_zoom_layout(form):
     assert form.import_button.winfo_rootx() < form.ocr_language_box.winfo_rootx()
     assert form.ocr_language_label.grid_info()["row"] == form.ocr_language_box.grid_info()["row"]
     assert form.stop_button.winfo_rootx() < form.exit_button.winfo_rootx()
-    assert form.stop_button.winfo_rootx() > form.save_button.winfo_rootx()
+    assert form.stop_button.winfo_rootx() < form.save_button.winfo_rootx()
     assert form.ocr_language_box.cget("width") == 30
     assert form.zoom_in_button.winfo_rooty() > (
         form.canvas.winfo_rooty() + form.canvas.winfo_height()

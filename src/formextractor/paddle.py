@@ -88,6 +88,33 @@ def _exception_details(exc: BaseException) -> str:
     return "\nCaused by: ".join(details)
 
 
+class PaddleTextDetector:
+    """Find text polygons for exclusion from image matching, without reading text."""
+
+    def __init__(self, *, device: str = "cpu") -> None:
+        self.device = device
+        self._detector = None
+
+    def detect(self, image: Image.Image):
+        _ensure_standard_streams()
+        _prepare_model_cache()
+        try:
+            import numpy as np
+            from paddleocr import TextDetection
+
+            if self._detector is None:
+                self._detector = TextDetection(device=self.device)
+            bgr = np.asarray(image.convert("RGB"))[:, :, ::-1].copy()
+            results = list(self._detector.predict(input=bgr))
+            if len(results) != 1 or "dt_polys" not in results[0]:
+                raise ExtractionError("Unexpected text detection output format")
+            return results[0]["dt_polys"]
+        except ExtractionError:
+            raise
+        except Exception as exc:
+            raise ExtractionError(f"Text detection failed: {_exception_details(exc)}") from exc
+
+
 class PaddleLayout:
     def __init__(self, *, device: str = "cpu", lang: str = "en") -> None:
         self.device = device

@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import pytest
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from formextractor.area_matching import AreaTemplate, PageMatcher
 from formextractor.areas import RecognitionArea, recognize_batch
@@ -78,7 +78,9 @@ def test_small_template_without_features_matches_after_quarter_turn():
                         assert np.array_equal(np.asarray(found), np.asarray(patch))
 
 
-def test_batch_publishes_each_area_and_continues_after_match_and_ocr_errors(tmp_path):
+def test_batch_publishes_each_area_and_continues_after_match_and_ocr_errors(
+    tmp_path, no_text_detector
+):
     page, first = template_page()
     second = RecognitionArea(number=2, page=1, x1=0.75, y1=0.7, x2=0.95, y2=0.95)
     # A distinctive second template is absent from the target image.
@@ -107,6 +109,7 @@ def test_batch_publishes_each_area_and_continues_after_match_and_ocr_errors(tmp_
         [first, second],
         "*.png",
         layout=OCR(),
+        text_detector=no_text_detector,
         on_row=lambda row: events.append(row),
     )
     assert result.rows[0].values == [None, None]
@@ -118,3 +121,104 @@ def test_batch_publishes_each_area_and_continues_after_match_and_ocr_errors(tmp_
     assert updates[-3].values == ["found", None]
     assert updates[-2].values == ["found", "found"]
     assert events[0] == "ocr" and events[1].values == [None, None]
+
+
+def text_patch(text):
+    patch = Image.new("RGB", (360, 260), "white")
+    with sample_area() as graphic:
+        patch.paste(graphic, (60, 10))
+    ImageDraw.Draw(patch).text((15, 190), text, fill="black", font=ImageFont.load_default(size=24))
+    return patch
+
+
+@pytest.mark.parametrize("angle,scale", [(0, 1), (90, 1), (17, 1.25), (-32, 0.8)])
+def test_changed_text_is_excluded_but_retained_in_upright_crop(angle, scale):
+    region = np.float32([[10, 180], [350, 180], [350, 235], [10, 235]])
+    area = RecognitionArea(number=1, page=1, x1=0, y1=0, x2=1, y2=1)
+    with text_patch("OLD VALUE 12345") as source, text_patch("New 987") as patch:
+        template = AreaTemplate(source, area, text_regions=[region])
+        transform = cv2.getRotationMatrix2D((180, 130), angle, scale)
+        transform[:, 2] += (150, 160)
+        pixels = cv2.warpAffine(
+            np.asarray(patch), transform, (700, 650), borderValue=(255, 255, 255)
+        )
+        target_region = cv2.transform(region[None], transform)[0]
+        with Image.fromarray(pixels) as target:
+            with PageMatcher(target, text_regions=[target_region]).crop(template) as found:
+                assert abs(found.width - patch.width * scale) <= 2
+                assert abs(found.height - patch.height * scale) <= 2
+                with found.resize(patch.size) as normalized:
+                    error = np.abs(np.asarray(normalized).astype(float) - np.asarray(patch)).mean()
+                    assert error < 15
+                    # The crop sent to recognition still contains the new text.
+                    assert np.asarray(normalized)[195:220, 20:100].min() < 80
+
+
+def test_template_fallback_ignores_different_text_boxes_and_text_decoy():
+    source_region = [[10, 180], [350, 180], [350, 235], [10, 235]]
+    area = RecognitionArea(number=1, page=1, x1=0, y1=0, x2=1, y2=1)
+    with text_patch("OLD VALUE 12345") as source, text_patch("New 987") as patch:
+        template = AreaTemplate(source, area, text_regions=[source_region])
+        template.descriptors = None  # Exercise correlation when SIFT has too few anchors.
+        with Image.new("RGB", (850, 350), "white") as target:
+            target.paste(patch, (430, 40))
+            ImageDraw.Draw(target).text(
+                (35, 210), "OLD VALUE 12345", fill="black", font=ImageFont.load_default(size=24)
+            )
+            regions = [
+                [[440, 220], [560, 220], [560, 275], [440, 275]],
+                [[30, 200], [370, 200], [370, 255], [30, 255]],
+            ]
+            with PageMatcher(target, text_regions=regions).crop(template) as found:
+                np.testing.assert_array_equal(np.asarray(found), np.asarray(patch))
+
+
+def test_text_alone_cannot_supply_a_match_even_on_identical_pages():
+    area = RecognitionArea(number=1, page=1, x1=0, y1=0, x2=1, y2=1)
+    with Image.new("RGB", (360, 100), "white") as page:
+        ImageDraw.Draw(page).text((15, 20), "Only text 12345", fill="black")
+        regions = [[[5, 10], [350, 10], [350, 80], [5, 80]]]
+        template = AreaTemplate(page, area, text_regions=regions)
+        with pytest.raises(ExtractionError, match="No reliable image match"):
+            PageMatcher(page, text_regions=regions).crop(template)
+
+
+def test_identical_graphics_cannot_be_disambiguated_by_text():
+    region = np.array([[10, 180], [350, 180], [350, 235], [10, 235]])
+    area = RecognitionArea(number=1, page=1, x1=0, y1=0, x2=1, y2=1)
+    with text_patch("OLD VALUE") as source, text_patch("New 987") as other:
+        template = AreaTemplate(source, area, text_regions=[region])
+        with Image.new("RGB", (850, 350), "white") as target:
+            target.paste(source, (20, 40))
+            target.paste(other, (450, 40))
+            regions = [region + (20, 40), region + (450, 40)]
+            with pytest.raises(ExtractionError, match="No reliable image match"):
+                PageMatcher(target, text_regions=regions).crop(template)
+
+
+def test_batch_detects_text_once_per_page_and_reads_original_crop(tmp_path):
+    regions = [[[10, 180], [350, 180], [350, 235], [10, 235]]]
+    source_path, target_path = tmp_path / "source.png", tmp_path / "target.png"
+    with text_patch("OLD VALUE") as source, text_patch("New 987") as target:
+        source.save(source_path)
+        target.save(target_path)
+        expected = np.asarray(target).copy()
+    calls = []
+
+    class Detector:
+        def detect(self, image):
+            calls.append(image.size)
+            return regions
+
+    class OCR:
+        def analyze(self, image):
+            np.testing.assert_allclose(np.asarray(image), expected, atol=5)
+            return LayoutResult(markdown="New 987", data={})
+
+    areas = [RecognitionArea(number=n, page=1, x1=0, y1=0, x2=1, y2=1) for n in (1, 2)]
+    result = recognize_batch(
+        str(source_path), [str(target_path)], areas, "*.png", layout=OCR(), text_detector=Detector()
+    )
+    assert result.rows[0].error is None
+    assert result.rows[0].values == ["New 987", "New 987"]
+    assert calls == [(360, 260), (360, 260)]

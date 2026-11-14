@@ -10,7 +10,7 @@ from PIL import Image
 
 from formextractor import paddle as paddle_adapter
 from formextractor.errors import ExtractionError
-from formextractor.paddle import PaddleLayout
+from formextractor.paddle import PaddleLayout, PaddleTextDetector
 
 
 def test_unicode_cache_uses_existing_ascii_alias_before_import(monkeypatch, tmp_path):
@@ -121,6 +121,38 @@ def test_missing_paddle_dependency_has_install_instructions(monkeypatch):
     monkeypatch.setitem(sys.modules, "paddleocr", None)
     with pytest.raises(ExtractionError, match="python -m pip install -e"):
         PaddleLayout().analyze(Image.new("RGB", (20, 20)))
+
+
+def test_text_detector_returns_polygons_without_recognizing_text(monkeypatch):
+    calls = []
+    polygons = [np.array([[1, 2], [30, 2], [30, 15], [1, 15]])]
+
+    class Detector:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def predict(self, input):
+            assert input.shape == (20, 40, 3)
+            np.testing.assert_array_equal(input[0, 0], [0, 0, 255])
+            yield {"dt_polys": polygons}
+
+    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(TextDetection=Detector))
+    adapter = PaddleTextDetector(device="cpu")
+    with Image.new("RGB", (40, 20), "red") as image:
+        assert adapter.detect(image) is polygons
+        assert adapter.detect(image) is polygons
+    assert calls == [{"device": "cpu"}]
+
+
+def test_text_detector_errors_are_reported_instead_of_matching_text(monkeypatch):
+    class Detector:
+        def __init__(self, **kwargs):
+            raise RuntimeError("Detector unavailable")
+
+    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(TextDetection=Detector))
+    with Image.new("RGB", (20, 20)) as image:
+        with pytest.raises(ExtractionError, match="Text detection failed.*Detector unavailable"):
+            PaddleTextDetector().detect(image)
 
 
 def test_pipeline_creation_preserves_underlying_dependency_error(monkeypatch):

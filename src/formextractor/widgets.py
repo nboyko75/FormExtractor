@@ -41,6 +41,26 @@ def circle_icon(owner: tk.Misc, *, plus: bool, disabled: bool = False) -> ImageT
     return result
 
 
+def arrow_icon(owner: tk.Misc, *, right: bool, disabled: bool = False) -> ImageTk.PhotoImage:
+    """Draw a page-navigation arrow at the current display scale."""
+    size = max(20, round(20 * owner.winfo_fpixels("1i") / 96))
+    image = Image.new("RGBA", (80, 80))
+    draw = ImageDraw.Draw(image)
+    color = "#9ca3af" if disabled else "#263648"
+    points = (
+        (10, 36), (51, 36), (35, 20), (41, 14), (67, 40),
+        (41, 66), (35, 60), (51, 44), (10, 44),
+    )
+    if not right:
+        points = tuple((80 - x, y) for x, y in points)
+    draw.polygon(points, fill=color)
+    resized = image.resize((size, size), Image.Resampling.LANCZOS)
+    result = ImageTk.PhotoImage(resized, master=owner)
+    resized.close()
+    image.close()
+    return result
+
+
 def exit_icon(owner: tk.Misc) -> ImageTk.PhotoImage:
     """Draw a door and red exit arrow like DocExplorer's wx.ART_QUIT icon."""
     size = max(20, round(20 * owner.winfo_fpixels("1i") / 96))

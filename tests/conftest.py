@@ -5,6 +5,15 @@ from formextractor.schema import PageExtraction
 
 
 @pytest.fixture
+def no_text_detector():
+    class Detector:
+        def detect(self, image):
+            return []
+
+    return Detector()
+
+
+@pytest.fixture
 def page_data():
     return {
         "document_type": "Vehicle Inspection Report",

@@ -22,7 +22,7 @@ from .ocr_languages import OCR_LANGUAGES
 from .output import to_text, validate_output_path, write_output
 from .schema import DocumentResult
 from .settings import load_language, load_settings, save_language, update_settings
-from .widgets import ToolTip, circle_icon, exit_icon, zoom_icon
+from .widgets import ToolTip, arrow_icon, circle_icon, exit_icon, zoom_icon
 
 MIN_ZOOM = 0.25
 MAX_ZOOM = 4.0
@@ -233,14 +233,25 @@ class MainForm:
         ToolTip(self.zoom_in_button, self.tr("zoom_in"))
         ToolTip(self.zoom_out_button, self.tr("zoom_out"))
         ttk.Label(zoom_controls, textvariable=self.zoom_label).pack(side="left", padx=(0, 8))
+        self.page_icons = {
+            (right, disabled): arrow_icon(root, right=right, disabled=disabled)
+            for right in (True, False)
+            for disabled in (True, False)
+        }
         self.previous_button = ttk.Button(
-            page_controls, text=self.tr("previous"), width=0, command=lambda: self.turn_page(-1)
+            page_controls,
+            image=(self.page_icons[False, False], "disabled", self.page_icons[False, True]),
+            command=lambda: self.turn_page(-1),
         )
         self.previous_button.pack(side="left")
         self.next_button = ttk.Button(
-            page_controls, text=self.tr("next"), width=0, command=lambda: self.turn_page(1)
+            page_controls,
+            image=(self.page_icons[True, False], "disabled", self.page_icons[True, True]),
+            command=lambda: self.turn_page(1),
         )
         self.next_button.pack(side="left", padx=4)
+        ToolTip(self.previous_button, self.tr("previous"))
+        ToolTip(self.next_button, self.tr("next"))
         ttk.Label(page_controls, textvariable=self.page_label).pack(side="left", padx=(2, 0))
         source_actions = ttk.Frame(left)
         source_actions.grid(row=4, column=0, sticky="ew", pady=(4, 0))
@@ -283,10 +294,10 @@ class MainForm:
             actions, text=self.tr("recognize"), command=self.recognize
         )
         self.recognize_button.pack(side="left")
-        self.save_button = ttk.Button(actions, text=self.tr("save"), command=self.save)
-        self.save_button.pack(side="left", padx=8)
         self.stop_button = ttk.Button(actions, text=self.tr("stop"), command=self.stop_recognition)
-        self.stop_button.pack(side="left", padx=(0, 8))
+        self.stop_button.pack(side="left", padx=8)
+        self.save_button = ttk.Button(actions, text=self.tr("save"), command=self.save)
+        self.save_button.pack(side="left", padx=(0, 8))
         self.exit_icon = exit_icon(root)
         self.exit_button = ttk.Button(actions, image=self.exit_icon, command=self.close)
         self.exit_button.pack(side="left")

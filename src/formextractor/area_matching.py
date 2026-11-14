@@ -7,28 +7,99 @@ from PIL import Image
 from .errors import ExtractionError
 
 
+def _nontext_mask(shape, text_regions) -> np.ndarray:
+    mask = np.full(shape, 255, dtype=np.uint8)
+    for polygon in text_regions:
+        points = np.asarray(polygon, dtype=np.float64)
+        if (
+            points.ndim != 2
+            or points.shape[1] != 2
+            or len(points) < 3
+            or not np.isfinite(points).all()
+        ):
+            raise ExtractionError("Invalid text detection polygon")
+        cv2.fillPoly(mask, [np.rint(points).astype(np.int32)], 0)
+    # Exclude antialiased pixels just outside the detected boundary as well.
+    return cv2.erode(mask, np.ones((3, 3), dtype=np.uint8))
+
+
+def _features(gray, mask, count):
+    clean = np.where(mask, gray, 0).astype(np.uint8)
+    points, descriptors = cv2.SIFT_create(nfeatures=count).detectAndCompute(clean, mask)
+    if descriptors is None or np.all(mask):
+        return points, descriptors
+    distance = cv2.distanceTransform(mask, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+    # SIFT descriptors sample a neighbourhood, not just the keypoint's centre.
+    keep = [
+        index
+        for index, point in enumerate(points)
+        if distance[round(point.pt[1]), round(point.pt[0])] > 6 * point.size
+    ]
+    return [points[index] for index in keep], descriptors[keep] if keep else None
+
+
+def _resize_mask(mask, size):
+    return (cv2.resize(mask, size, interpolation=cv2.INTER_AREA) == 255).astype(np.uint8) * 255
+
+
+def _match_scores(search, needle, search_mask, needle_mask):
+    if np.all(search_mask) and np.all(needle_mask):
+        return cv2.matchTemplate(search, needle, cv2.TM_CCOEFF_NORMED)
+    # Normalized correlation over only pixels valid in BOTH images. Filling
+    # text boxes with white would otherwise let their shapes influence matching.
+    valid = (search_mask != 0).astype(np.float32)
+    weight = (needle_mask != 0).astype(np.float32)
+    target = search.astype(np.float32) * valid / 255
+    source = needle.astype(np.float32) * weight / 255
+
+    def correlate(image, template):
+        return cv2.matchTemplate(image, template, cv2.TM_CCORR)
+
+    count = correlate(valid, weight)
+    denominator = np.maximum(count, 1)
+    target_sum = correlate(target, weight)
+    source_sum = correlate(valid, source)
+    target_variance = np.maximum(
+        correlate(target * target, weight) - target_sum**2 / denominator, 0
+    )
+    source_variance = np.maximum(correlate(valid, source * source) - source_sum**2 / denominator, 0)
+    covariance = correlate(target, source) - target_sum * source_sum / denominator
+    scores = covariance / np.maximum(np.sqrt(target_variance * source_variance), 1e-8)
+    reliable = (
+        (count >= max(weight.sum() * 0.6, weight.size * 0.1))
+        & (target_variance / denominator > (3 / 255) ** 2)
+        & (source_variance / denominator > (3 / 255) ** 2)
+    )
+    return np.where(reliable, np.clip(scores, -1, 1), -1)
+
+
 class AreaTemplate:
-    def __init__(self, page: Image.Image, area) -> None:
+    def __init__(self, page: Image.Image, area, *, text_regions=()) -> None:
         self.area = area
         self.page_size = page.size
+        page_mask = _nontext_mask((page.height, page.width), text_regions)
+        self.has_text = not np.all(page_mask)
+        x1, y1, x2, y2 = area.pixel_box(*page.size)
+        self.mask = page_mask[y1:y2, x1:x2].copy()
         with page.crop(area.pixel_box(*page.size)) as crop:
             self.gray = cv2.cvtColor(np.asarray(crop), cv2.COLOR_RGB2GRAY)
         self.page_thumbnail = cv2.resize(np.asarray(page), (128, 128), interpolation=cv2.INTER_AREA)
-        self.points, self.descriptors = cv2.SIFT_create(nfeatures=2000).detectAndCompute(
-            self.gray, None
-        )
+        self.points, self.descriptors = _features(self.gray, self.mask, 2000)
 
 
 class PageMatcher:
-    def __init__(self, image: Image.Image) -> None:
+    def __init__(self, image: Image.Image, *, text_regions=()) -> None:
         self.rgb = np.asarray(image)
         self.gray = cv2.cvtColor(self.rgb, cv2.COLOR_RGB2GRAY)
+        self.mask = _nontext_mask(self.gray.shape, text_regions)
+        self.has_text = not np.all(self.mask)
         self.features = None
 
     def crop(self, template: AreaTemplate) -> Image.Image:
         # Identical pages (including changed resolution and quarter turns) have
         # a known alignment, even when the selected area itself is blank.
-        for turns in range(4):
+        # With detected text, this shortcut could use letters as alignment cues.
+        for turns in range(4) if not (self.has_text or template.has_text) else ():
             oriented = np.rot90(self.rgb, turns)
             thumbnail = cv2.resize(oriented, (128, 128), interpolation=cv2.INTER_AREA)
             if np.array_equal(thumbnail, template.page_thumbnail):
@@ -47,7 +118,7 @@ class PageMatcher:
         if template.descriptors is None or len(template.points) < 6:
             return None
         if self.features is None:
-            self.features = cv2.SIFT_create(nfeatures=6000).detectAndCompute(self.gray, None)
+            self.features = _features(self.gray, self.mask, 6000)
         points, descriptors = self.features
         if descriptors is None or len(points) < 6:
             return None
@@ -95,17 +166,21 @@ class PageMatcher:
     def _template_crop(self, template: AreaTemplate) -> Image.Image | None:
         # Small templates sometimes lack enough features. Search all quarter
         # turns at the original and expected scan resolutions in that case.
-        if template.gray.std() < 3:
+        visible = template.gray[template.mask != 0]
+        if visible.size < template.gray.size * 0.1 or visible.std() < 3:
             return None
         search_scale = min(1.0, 1000 / max(self.gray.shape))
         best = None
         for turns in range(4):
-            oriented = np.rot90(self.gray, turns)
+            oriented = np.rot90(np.where(self.mask, self.gray, 0).astype(np.uint8), turns)
             h, w = oriented.shape
             search = cv2.resize(
                 oriented,
                 (round(w * search_scale), round(h * search_scale)),
                 interpolation=cv2.INTER_AREA,
+            )
+            search_mask = _resize_mask(
+                np.rot90(self.mask, turns), (search.shape[1], search.shape[0])
             )
             expected = min(w / template.page_size[0], h / template.page_size[1])
             for scale in sorted({1.0, expected * 0.9, expected, expected * 1.1}):
@@ -113,10 +188,16 @@ class PageMatcher:
                 size = (round(tw * scale * search_scale), round(th * scale * search_scale))
                 if min(size) < 4 or size[0] > search.shape[1] or size[1] > search.shape[0]:
                     continue
-                needle = cv2.resize(template.gray, size, interpolation=cv2.INTER_AREA)
-                if needle.std() < 3:
+                needle = cv2.resize(
+                    np.where(template.mask, template.gray, 0).astype(np.uint8),
+                    size,
+                    interpolation=cv2.INTER_AREA,
+                )
+                needle_mask = _resize_mask(template.mask, size)
+                visible = needle[needle_mask != 0]
+                if visible.size < needle.size * 0.1 or visible.std() < 3:
                     continue
-                scores = cv2.matchTemplate(search, needle, cv2.TM_CCOEFF_NORMED)
+                scores = _match_scores(search, needle, search_mask, needle_mask)
                 _, score, _, location = cv2.minMaxLoc(scores)
                 if score < 0.88 or (best is not None and score <= best[0]):
                     continue
