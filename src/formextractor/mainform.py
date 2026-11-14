@@ -22,7 +22,7 @@ from .ocr_languages import OCR_LANGUAGES
 from .output import to_text, validate_output_path, write_output
 from .schema import DocumentResult
 from .settings import load_language, load_settings, save_language, update_settings
-from .widgets import ToolTip, arrow_icon, circle_icon, exit_icon, zoom_icon
+from .widgets import ToolTip, arrow_icon, circle_icon, exit_icon, import_icon, zoom_icon
 
 MIN_ZOOM = 0.25
 MAX_ZOOM = 4.0
@@ -256,10 +256,16 @@ class MainForm:
         source_actions = ttk.Frame(left)
         source_actions.grid(row=4, column=0, sticky="ew", pady=(4, 0))
         source_actions.columnconfigure(2, weight=1)
+        self.import_icons = {
+            disabled: import_icon(root, disabled=disabled) for disabled in (False, True)
+        }
         self.import_button = ttk.Button(
-            source_actions, text=self.tr("import"), command=self.import_document
+            source_actions,
+            image=(self.import_icons[False], "disabled", self.import_icons[True]),
+            command=self.import_document,
         )
         self.import_button.grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.import_tooltip = ToolTip(self.import_button, self.tr("import"))
         self.ocr_language_label = ttk.Label(source_actions, text=self.tr("ocr_language"))
         self.ocr_language_label.grid(row=0, column=1, sticky="w", padx=(0, 6))
         self.ocr_language_box = ttk.Combobox(
@@ -313,6 +319,13 @@ class MainForm:
         root.bind("<Control-s>", lambda event: self.save())
         self.file_mask.trace_add("write", self._schedule_preferences_save)
         self._update_controls()
+        last_source = self.preferences.get("last_source")
+        if isinstance(last_source, str) and last_source:
+            self.load_document(
+                Path(last_source),
+                page_number=self.preferences.get("last_page", 1),
+                report_errors=False,
+            )
 
     def _schedule_initial_split(self, event=None) -> None:
         if self.split_initialized:
@@ -407,13 +420,21 @@ class MainForm:
         if selected:
             self.load_document(Path(selected))
 
-    def load_document(self, source: Path) -> None:
+    def load_document(
+        self, source: Path, *, page_number: int = 1, report_errors: bool = True
+    ) -> None:
         if self.job is not None or not self._confirm_discard_edits():
             return
         try:
             preview, count = load_preview(source)
+            if type(page_number) is not int or not 1 <= page_number <= count:
+                page_number = 1
+            if page_number != 1:
+                preview.close()
+                preview, _ = load_preview(source, page_number)
         except Exception as exc:
-            messagebox.showerror(self.tr("import_error"), self.tr.error(exc), parent=self.root)
+            if report_errors:
+                messagebox.showerror(self.tr("import_error"), self.tr.error(exc), parent=self.root)
             return
         if self.preview is not None:
             self.preview.close()
@@ -426,9 +447,9 @@ class MainForm:
         self.area_editor.set_mode(None)
         self.preview = preview
         self.reset_preview_view = True
-        self.page_number, self.page_count = 1, count
+        self.page_number, self.page_count = page_number, count
         self.filename.set(source.name)
-        self.page_label.set(self.tr("page", number=1, count=count))
+        self.page_label.set(self.tr("page", number=page_number, count=count))
         self.result = None
         self.batch_sources = []
         self._set_editor(self.text_editor, "")
@@ -786,6 +807,8 @@ class MainForm:
         if self.split_initialized and self.panes.winfo_width() > 1:
             changes["split_fraction"] = self.panes.sashpos(0) / self.panes.winfo_width()
         if self.source is not None:
+            changes["last_source"] = str(self.source.resolve())
+            changes["last_page"] = self.page_number
             files = load_settings(self.preferences_path).get("files", {})
             if not isinstance(files, dict):
                 files = {}

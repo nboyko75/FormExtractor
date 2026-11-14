@@ -61,6 +61,21 @@ def arrow_icon(owner: tk.Misc, *, right: bool, disabled: bool = False) -> ImageT
     return result
 
 
+def import_icon(owner: tk.Misc, *, disabled: bool = False) -> ImageTk.PhotoImage:
+    """Draw an open folder at the current display scale."""
+    size = max(20, round(20 * owner.winfo_fpixels("1i") / 96))
+    image = Image.new("RGBA", (80, 80))
+    draw = ImageDraw.Draw(image)
+    color = "#9ca3af" if disabled else "#263648"
+    draw.line((8, 65, 8, 17, 29, 17, 37, 25, 65, 25, 65, 35), fill=color, width=5)
+    draw.line((8, 65, 20, 36, 73, 36, 61, 65, 8, 65), fill=color, width=5, joint="curve")
+    resized = image.resize((size, size), Image.Resampling.LANCZOS)
+    result = ImageTk.PhotoImage(resized, master=owner)
+    resized.close()
+    image.close()
+    return result
+
+
 def exit_icon(owner: tk.Misc) -> ImageTk.PhotoImage:
     """Draw a door and red exit arrow like DocExplorer's wx.ART_QUIT icon."""
     size = max(20, round(20 * owner.winfo_fpixels("1i") / 96))

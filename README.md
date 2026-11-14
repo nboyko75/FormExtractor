@@ -84,8 +84,10 @@ on other systems. The interface language does not change the OCR recognition lan
 Window size, position, maximized state, pane divider, OCR language, file mask, and
 zoom percentage are restored on startup. Splitter, mask, language-selection, and
 zoom changes are saved automatically after a short delay, as well as on exit.
-Area changes are saved immediately under the source file's
-absolute path and restored when that file is imported again. Coordinates are stored
+Area coordinates are saved immediately after changes and again before closing, under
+the source file's absolute path. On startup, the last document and page reopen with their
+saved areas; importing another document restores that document's own areas. If the last
+document is unavailable, the form opens empty and keeps its saved areas. Coordinates are stored
 relative to page dimensions, so they survive zoom changes and scale across matching files.
 Native file dialogs use the operating system's language; technical library diagnostics
 and recognized document contents retain their original text.

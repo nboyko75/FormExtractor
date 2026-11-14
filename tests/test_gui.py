@@ -384,7 +384,9 @@ def test_localized_desktop_dialogs_and_file_filters(desktop, tmp_path, monkeypat
     tr = Translator(language)
     try:
         assert window.menu.entrycget(0, "label") == tr("file")
-        assert window.import_button.cget("text") == tr("import")
+        assert window.import_button.cget("text") == ""
+        assert window.import_button.cget("image")
+        assert window.import_tooltip.text == tr("import")
         assert window.status.get() == tr("start")
         dialogs = []
         monkeypatch.setattr(
@@ -681,12 +683,108 @@ def test_window_language_mask_and_templates_survive_reopen(desktop, tmp_path, im
         assert reopened.panes.sashpos(0) / reopened.panes.winfo_width() == pytest.approx(
             fraction, abs=0.005
         )
-        reopened.load_document(image_path)
+        assert reopened.source == image_path
         assert reopened.zoom_level == zoom
         assert len(reopened.area_editor.areas) == 1
         assert len(reopened.canvas.find_withtag("areas")) == 2
     finally:
         reopened._shutdown()
+
+
+@pytest.mark.parametrize("remove_areas", [False, True])
+def test_close_saves_latest_area_coordinates_and_reopens_last_page(desktop, tmp_path, remove_areas):
+    from formextractor.areas import source_key
+    from formextractor.settings import load_settings
+
+    source = tmp_path / "pages.pdf"
+    with pymupdf.open() as document:
+        document.new_page(width=200, height=300)
+        document.new_page(width=300, height=200)
+        document.save(source)
+    preferences = tmp_path / "settings.json"
+    window = MainForm(tk.Toplevel(desktop), preferences_path=preferences)
+    window.load_document(source)
+    window.area_editor.areas = [
+        RecognitionArea(number=1, page=1, x1=0.1, y1=0.2, x2=0.5, y2=0.7),
+        RecognitionArea(number=3, page=2, x1=0.25, y1=0.3, x2=0.8, y2=0.9),
+    ]
+    window._areas_changed()
+    # Closing must flush the latest state even without an autosave notification.
+    window.area_editor.areas = (
+        []
+        if remove_areas
+        else [
+            window.area_editor.areas[0],
+            RecognitionArea(number=3, page=2, x1=0.2, y1=0.1, x2=0.6, y2=0.75),
+        ]
+    )
+    expected = list(window.area_editor.areas)
+    window.turn_page(1)
+    window.close()
+    stored = load_settings(preferences)
+    assert stored["files"][source_key(source)]["areas"] == [area.model_dump() for area in expected]
+    assert stored["last_source"] == str(source.resolve())
+    assert stored["last_page"] == 2
+    reopened = MainForm(tk.Toplevel(desktop), preferences_path=preferences)
+    try:
+        reopened.root.update()
+        assert reopened.source == source
+        assert reopened.page_number == reopened.area_editor.page == 2
+        assert reopened.area_editor.areas == expected
+        assert len(reopened.canvas.find_withtag("areas")) == (0 if remove_areas else 2)
+    finally:
+        reopened._shutdown()
+
+
+@pytest.mark.parametrize("saved_page", [0, 99, "2", None, True])
+def test_invalid_saved_page_restores_first_page(desktop, tmp_path, image_path, saved_page):
+    from formextractor.settings import update_settings
+
+    preferences = tmp_path / "settings.json"
+    update_settings({"last_source": str(image_path), "last_page": saved_page}, preferences)
+    reopened = MainForm(tk.Toplevel(desktop), preferences_path=preferences)
+    try:
+        assert reopened.source == image_path
+        assert reopened.page_number == 1
+    finally:
+        reopened._shutdown()
+
+
+@pytest.mark.parametrize("source_kind", ["missing", "broken", "invalid"])
+def test_unavailable_last_document_keeps_saved_areas(desktop, tmp_path, monkeypatch, source_kind):
+    from formextractor.areas import source_key
+    from formextractor.settings import load_settings, update_settings
+
+    source = tmp_path / "scan.png"
+    if source_kind == "broken":
+        source.write_bytes(b"not an image")
+    preferences = tmp_path / "settings.json"
+    files = {
+        source_key(source): {
+            "areas": [
+                RecognitionArea(number=1, page=1, x1=0.1, y1=0.2, x2=0.5, y2=0.7).model_dump()
+            ]
+        }
+    }
+    update_settings(
+        {"last_source": [] if source_kind == "invalid" else str(source), "files": files},
+        preferences,
+    )
+    errors = []
+    monkeypatch.setattr(
+        "formextractor.mainform.messagebox.showerror", lambda *a, **k: errors.append(a)
+    )
+    reopened = MainForm(tk.Toplevel(desktop), preferences_path=preferences)
+    try:
+        assert reopened.source is None
+        assert reopened.preview is None
+        assert not reopened.area_editor.areas
+        assert not errors
+        reopened.close()
+        assert load_settings(preferences)["files"] == files
+    finally:
+        if reopened.root.winfo_exists():
+            reopened._shutdown()
 
 
 def test_masked_batch_request_displays_and_saves_tabular_results(
