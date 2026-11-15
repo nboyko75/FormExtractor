@@ -73,11 +73,23 @@ def _match_scores(search, needle, search_mask, needle_mask):
     return np.where(reliable, np.clip(scores, -1, 1), -1)
 
 
+class PageTemplate:
+    """Shared page context keeps repetitive fields in the same coordinate system."""
+
+    def __init__(self, page: Image.Image, *, text_regions=()) -> None:
+        self.gray = cv2.cvtColor(np.asarray(page), cv2.COLOR_RGB2GRAY)
+        self.mask = _nontext_mask(self.gray.shape, text_regions)
+        self.features = None
+
+
 class AreaTemplate:
-    def __init__(self, page: Image.Image, area, *, text_regions=()) -> None:
+    def __init__(self, page: Image.Image, area, *, text_regions=(), reference=None) -> None:
         self.area = area
         self.page_size = page.size
-        page_mask = _nontext_mask((page.height, page.width), text_regions)
+        self.reference = (
+            reference if reference is not None else PageTemplate(page, text_regions=text_regions)
+        )
+        page_mask = self.reference.mask
         self.has_text = not np.all(page_mask)
         x1, y1, x2, y2 = area.pixel_box(*page.size)
         self.mask = page_mask[y1:y2, x1:x2].copy()
@@ -94,6 +106,7 @@ class PageMatcher:
         self.mask = _nontext_mask(self.gray.shape, text_regions)
         self.has_text = not np.all(self.mask)
         self.features = None
+        self.alignments = {}
 
     def crop(self, template: AreaTemplate) -> Image.Image:
         # Identical pages (including changed resolution and quarter turns) have
@@ -106,6 +119,24 @@ class PageMatcher:
                 h, w = oriented.shape[:2]
                 x1, y1, x2, y2 = template.area.pixel_box(w, h)
                 return Image.fromarray(oriented[y1:y2, x1:x2].copy())
+        reference = template.reference
+        if reference not in self.alignments:
+            self.alignments[reference] = self._page_alignment(reference)
+        alignment = self.alignments[reference]
+        if alignment is not None:
+            turns, transform = alignment
+            if turns is not None:
+                oriented = np.rot90(self.rgb, turns)
+                h, w = oriented.shape[:2]
+                x1, y1, x2, y2 = template.area.pixel_box(w, h)
+                return Image.fromarray(oriented[y1:y2, x1:x2].copy())
+            x1, y1, _, _ = template.area.pixel_box(*template.page_size)
+            local = transform.copy()
+            local[:, 2] += transform[:, :2] @ np.array([x1, y1])
+            crop = self._warp_crop(local, template.gray.shape)
+            if crop is None:
+                raise ExtractionError("Aligned area lies outside the target page")
+            return crop
         crop = self._feature_crop(template)
         if crop is not None:
             return crop
@@ -114,15 +145,67 @@ class PageMatcher:
             return crop
         raise ExtractionError("No reliable image match found")
 
+    def _page_alignment(self, reference):
+        # Compare all visible page structure, never the text or the shapes of
+        # text masks. This also handles same-page recognition of text-only cells.
+        candidates = []
+        h, w = reference.gray.shape
+        factor = min(1.0, 1000 / max(h, w))
+        size = (max(1, round(w * factor)), max(1, round(h * factor)))
+        source = cv2.resize(
+            np.where(reference.mask, reference.gray, 0), size, interpolation=cv2.INTER_AREA
+        )
+        source_mask = _resize_mask(reference.mask, size)
+        visible = source[source_mask != 0]
+        if visible.size < source.size * 0.1 or visible.std() < 3:
+            return None
+        for turns in range(4):
+            gray, mask = np.rot90(self.gray, turns), np.rot90(self.mask, turns)
+            # A changed aspect ratio needs geometric registration, not stretching.
+            if abs((gray.shape[1] / gray.shape[0]) / (w / h) - 1) > 0.01:
+                continue
+            target = cv2.resize(np.where(mask, gray, 0), size, interpolation=cv2.INTER_AREA)
+            target_mask = _resize_mask(mask, size)
+            score = float(_match_scores(target, source, target_mask, source_mask)[0, 0])
+            candidates.append((score, turns))
+        candidates.sort(reverse=True)
+        if candidates and candidates[0][0] >= 0.995:
+            if len(candidates) == 1 or candidates[0][0] - candidates[1][0] >= 0.04:
+                return candidates[0][1], None
+
+        if reference.features is None:
+            reference.features = _features(reference.gray, reference.mask, 6000)
+        transform = self._feature_transform(*reference.features, reference.gray.shape, spread=0.5)
+        if transform is None:
+            return None
+        # Distributed feature votes alone can still describe only part of a
+        # different form. Verify the surrounding structure before sharing it.
+        inverse = cv2.invertAffineTransform(transform) * factor
+        target = cv2.warpAffine(
+            np.where(self.mask, self.gray, 0), inverse, size, flags=cv2.INTER_LINEAR
+        )
+        target_mask = cv2.warpAffine(self.mask, inverse, size, flags=cv2.INTER_LINEAR)
+        target_mask = (target_mask == 255).astype(np.uint8) * 255
+        score = float(_match_scores(target, source, target_mask, source_mask)[0, 0])
+        if score < 0.88:
+            return None
+        return None, transform
+
     def _feature_crop(self, template: AreaTemplate) -> Image.Image | None:
-        if template.descriptors is None or len(template.points) < 6:
+        transform = self._feature_transform(
+            template.points, template.descriptors, template.gray.shape
+        )
+        return None if transform is None else self._warp_crop(transform, template.gray.shape)
+
+    def _feature_transform(self, source_points, source_descriptors, shape, *, spread=0.2):
+        if source_descriptors is None or len(source_points) < 6:
             return None
         if self.features is None:
             self.features = _features(self.gray, self.mask, 6000)
         points, descriptors = self.features
         if descriptors is None or len(points) < 6:
             return None
-        pairs = cv2.BFMatcher().knnMatch(template.descriptors, descriptors, k=2)
+        pairs = cv2.BFMatcher().knnMatch(source_descriptors, descriptors, k=2)
         matches = [
             pair[0]
             for pair in pairs
@@ -132,7 +215,7 @@ class PageMatcher:
         matches = list({match.trainIdx: match for match in matches}.values())
         if len(matches) < 6:
             return None
-        source = np.float32([template.points[m.queryIdx].pt for m in matches])
+        source = np.float32([source_points[m.queryIdx].pt for m in matches])
         target = np.float32([points[m.trainIdx].pt for m in matches])
         transform, inliers = cv2.estimateAffinePartial2D(
             source, target, method=cv2.RANSAC, ransacReprojThreshold=3.0
@@ -142,20 +225,25 @@ class PageMatcher:
         accepted = inliers.ravel().astype(bool)
         if accepted.sum() < 6 or accepted.mean() < 0.6:
             return None
-        h, w = template.gray.shape
+        h, w = shape
         # Reject accidental matches concentrated on a single character or line.
-        spread = np.ptp(source[accepted], axis=0)
-        if spread[0] < w * 0.2 or spread[1] < h * 0.2:
+        extent = np.ptp(source[accepted], axis=0)
+        if extent[0] < w * spread or extent[1] < h * spread:
             return None
         scale = float(np.linalg.norm(transform[:, 0]))
         if not 0.25 <= scale <= 4:
             return None
+        return transform
+
+    def _warp_crop(self, transform, shape):
+        h, w = shape
         corners = np.float32([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]])
         mapped = cv2.transform(corners[None], transform)[0]
         height, width = self.gray.shape
         if (mapped < -1).any() or (mapped[:, 0] > width).any() or (mapped[:, 1] > height).any():
             return None
         # Preserve the target scan's resolution while undoing its rotation.
+        scale = float(np.linalg.norm(transform[:, 0]))
         output_size = (max(1, round(w * scale)), max(1, round(h * scale)))
         inverse = cv2.invertAffineTransform(transform) * scale
         upright = cv2.warpAffine(

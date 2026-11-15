@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw, ImageFont
 
-from formextractor.area_matching import AreaTemplate, PageMatcher
+from formextractor.area_matching import AreaTemplate, PageMatcher, PageTemplate
 from formextractor.areas import RecognitionArea, recognize_batch
 from formextractor.errors import ExtractionError
 from formextractor.paddle import LayoutResult
@@ -222,3 +222,151 @@ def test_batch_detects_text_once_per_page_and_reads_original_crop(tmp_path):
     assert result.rows[0].error is None
     assert result.rows[0].values == ["New 987", "New 987"]
     assert calls == [(360, 260), (360, 260)]
+
+
+def repeated_form():
+    """Narrow text fields are ambiguous without the surrounding form structure."""
+    page = Image.new("RGB", (600, 800), "white")
+    draw = ImageDraw.Draw(page)
+    rng = np.random.default_rng(83)
+    for _ in range(360):
+        x, y = rng.integers((30, 30), (560, 760))
+        if 430 < y < 550 or 610 < y < 730:
+            continue
+        radius = int(rng.integers(3, 9))
+        draw.ellipse((x, y, x + radius, y + radius), fill="black")
+    areas, regions = [], []
+    for index in range(8):
+        x, y = 30 + (index % 4) * 140, 450 + (index // 4) * 180
+        draw.rectangle((x, y, x + 130, y + 90), outline="black", width=2)
+        draw.line((x, y + 45, x + 130, y + 45), fill="black", width=2)
+        draw.text((x + 8, y + 58), f"OLD {index}", fill="black")
+        regions.append([[x + 4, y + 50], [x + 126, y + 50], [x + 126, y + 84], [x + 4, y + 84]])
+        areas.append(
+            RecognitionArea(
+                number=index + 1,
+                page=1,
+                x1=(x + 4) / 600,
+                y1=(y + 50) / 800,
+                x2=(x + 126) / 600,
+                y2=(y + 84) / 800,
+            )
+        )
+    return page, areas, np.float32(regions)
+
+
+@pytest.mark.parametrize("angle,scale", [(0, 1), (90, 1), (180, 1), (270, 1), (0, 2)])
+@pytest.mark.parametrize("changed_text", [False, True])
+def test_page_context_preserves_all_eight_text_only_fields(angle, scale, changed_text):
+    page, areas, regions = repeated_form()
+    reference = PageTemplate(page, text_regions=regions)
+    templates = [AreaTemplate(page, area, reference=reference) for area in areas]
+    with page.copy() as changed:
+        if changed_text:
+            draw = ImageDraw.Draw(changed)
+            for index, area in enumerate(areas):
+                x1, y1, x2, y2 = area.pixel_box(*page.size)
+                draw.rectangle((x1, y1, x2 - 1, y2 - 1), fill="white")
+                draw.text((x1 + 4, y1 + 8), f"NEW {index * 123}", fill="blue")
+        target = changed.resize((600 * scale, 800 * scale), Image.Resampling.NEAREST)
+    rotated = target.rotate(angle, expand=True)
+    # Rotate the detector polygons exactly as PIL rotates the target pixels.
+    transformed_regions = regions * scale
+    width, height = target.size
+    for _ in range(angle // 90):
+        transformed_regions = np.stack(
+            (transformed_regions[:, :, 1], width - 1 - transformed_regions[:, :, 0]), axis=2
+        )
+        width, height = height, width
+    matcher = PageMatcher(rotated, text_regions=transformed_regions)
+    for template in templates:
+        assert template.descriptors is None
+        with (
+            matcher.crop(template) as crop,
+            target.crop(template.area.pixel_box(*target.size)) as expected,
+        ):
+            np.testing.assert_array_equal(np.asarray(crop), np.asarray(expected))
+    assert len(matcher.alignments) == 1
+    page.close()
+    target.close()
+    rotated.close()
+
+
+@pytest.mark.parametrize("angle,scale", [(0, 1), (13, 1.15), (-27, 0.85)])
+def test_page_alignment_reads_changed_fields_after_translation_rotation_and_scaling(angle, scale):
+    page, areas, regions = repeated_form()
+    reference = PageTemplate(page, text_regions=regions)
+    changed = page.copy()
+    draw = ImageDraw.Draw(changed)
+    for index, area in enumerate(areas):
+        x1, y1, x2, y2 = area.pixel_box(*page.size)
+        draw.rectangle((x1, y1, x2 - 1, y2 - 1), fill="white")
+        draw.text((x1 + 4, y1 + 8), f"NEW {index * 123}", fill="blue")
+    transform = cv2.getRotationMatrix2D((300, 400), angle, scale)
+    transform[:, 2] += (200, 200)
+    pixels = cv2.warpAffine(
+        np.asarray(changed), transform, (1000, 1200), borderValue=(255, 255, 255)
+    )
+    target_regions = cv2.transform(regions.reshape(1, -1, 2), transform).reshape(-1, 4, 2)
+    with Image.fromarray(pixels) as target:
+        matcher = PageMatcher(target, text_regions=target_regions)
+        for area in areas:
+            template = AreaTemplate(page, area, reference=reference)
+            with (
+                matcher.crop(template) as crop,
+                changed.crop(area.pixel_box(*page.size)) as expected,
+            ):
+                assert abs(crop.width - expected.width * scale) <= 1
+                assert abs(crop.height - expected.height * scale) <= 1
+                with crop.resize(expected.size) as normalized:
+                    error = np.abs(
+                        np.asarray(normalized).astype(float) - np.asarray(expected)
+                    ).mean()
+                    assert error < 12
+        assert matcher.alignments[reference] is not None
+    changed.close()
+    page.close()
+
+
+def test_batch_saves_all_eight_masked_fields_in_area_number_order(tmp_path):
+    page, areas, regions = repeated_form()
+    source = tmp_path / "form.png"
+    page.save(source)
+    expected = [page.crop(area.pixel_box(*page.size)) for area in areas]
+
+    class Detector:
+        def detect(self, image):
+            return regions
+
+    class OCR:
+        def __init__(self):
+            self.count = 0
+
+        def analyze(self, image):
+            np.testing.assert_array_equal(np.asarray(image), np.asarray(expected[self.count]))
+            self.count += 1
+            return LayoutResult(markdown=str(self.count), data={})
+
+    result = recognize_batch(
+        str(source),
+        [str(source)],
+        list(reversed(areas)),
+        "*.png",
+        layout=OCR(),
+        text_detector=Detector(),
+        save_areas=True,
+    )
+    assert result.rows[0].error is None
+    assert result.rows[0].values == [str(number) for number in range(1, 9)]
+    with Image.open(tmp_path / "form_areas.png") as saved:
+        assert saved.size == (
+            max(crop.width for crop in expected),
+            sum(crop.height for crop in expected),
+        )
+        top = 0
+        for crop in expected:
+            with saved.crop((0, top, crop.width, top + crop.height)) as actual:
+                np.testing.assert_array_equal(np.asarray(actual), np.asarray(crop))
+            top += crop.height
+            crop.close()
+    page.close()

@@ -13,7 +13,7 @@ from typing import Literal
 from PIL import Image
 from pydantic import Field, model_validator
 
-from .area_matching import AreaTemplate, PageMatcher
+from .area_matching import AreaTemplate, PageMatcher, PageTemplate
 from .documents import IMAGE_EXTENSIONS, iter_pages
 from .errors import ExtractionError
 from .output import validate_output_path
@@ -165,11 +165,14 @@ def recognize_batch(
                 text_regions = (
                     text_detector.detect(page.image) if page.number in required_pages else ()
                 )
+                reference = (
+                    PageTemplate(page.image, text_regions=text_regions)
+                    if page.number in required_pages
+                    else None
+                )
                 for area in ordered:
                     if area.page == page.number:
-                        templates[area.number] = AreaTemplate(
-                            page.image, area, text_regions=text_regions
-                        )
+                        templates[area.number] = AreaTemplate(page.image, area, reference=reference)
                 if page.number >= max(required_pages):
                     break
     except Exception as exc:

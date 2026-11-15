@@ -47,15 +47,18 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   file's folder. Use `*.pdf`, `scan*.png`, or multiple masks such as `*.png;*.jpg`.
   Matching is case-insensitive, alphabetical, and does not recurse into subfolders.
   The default `*` matches all supported documents and images in that folder.
-- **Recognize** requires at least one area. It searches for each selected area's image
-  on the corresponding page of every matching file, allowing rotation, movement, and
-  changes in scale. Detected text is excluded from image matching; borders and graphics
-  identify the area even when its text changes. Matched crops retain their original text
+- **Recognize** requires at least one area. It first aligns the surrounding form on the
+  corresponding page of every matching file, allowing rotation, movement, and changes
+  in scale. All selected areas use that shared alignment, so small or repeated table
+  cells keep their positions. Detected text is excluded from image matching; borders
+  and graphics establish alignment even when field values change. If page alignment
+  cannot be verified, individual areas are matched using their own visual detail.
+  Matched crops retain their original text
   and are rotated back to the template's orientation for recognition with the selected
   language. Results appear after each area, then processing
   continues through the remaining areas and files. Unmatched areas are reported as errors
-  without stopping the batch. Select distinctive areas with enough visual detail to match;
-  text-only, small, or repetitive regions may not be identifiable. Recognition runs in a
+  without stopping the batch. Text-only, small, or repetitive regions need enough
+  surrounding form structure to establish page alignment. Recognition runs in a
   separate process, and the status bar displays the file currently being processed.
 - **Save areas**, on the right of the Import row, saves the matched crops after each file
   finishes recognition. One PNG is written beside the source, for example `invoice_areas.png`
