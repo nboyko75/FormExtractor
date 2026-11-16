@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 
 from .errors import ExtractionError
+from .form_alignment import RuledPage
 
 
 def _nontext_mask(shape, text_regions) -> np.ndarray:
@@ -80,6 +81,7 @@ class PageTemplate:
         self.gray = cv2.cvtColor(np.asarray(page), cv2.COLOR_RGB2GRAY)
         self.mask = _nontext_mask(self.gray.shape, text_regions)
         self.features = None
+        self.ruled_page = None
 
 
 class AreaTemplate:
@@ -106,6 +108,7 @@ class PageMatcher:
         self.mask = _nontext_mask(self.gray.shape, text_regions)
         self.has_text = not np.all(self.mask)
         self.features = None
+        self.ruled_page = None
         self.alignments = {}
 
     def crop(self, template: AreaTemplate) -> Image.Image:
@@ -173,6 +176,16 @@ class PageMatcher:
             if len(candidates) == 1 or candidates[0][0] - candidates[1][0] >= 0.04:
                 return candidates[0][1], None
 
+        # Photographs need perspective correction. The outline supplies an
+        # initial pose; internal ruling verifies both orientation and alignment.
+        if reference.ruled_page is None:
+            reference.ruled_page = RuledPage(reference.gray, reference.mask)
+        if self.ruled_page is None:
+            self.ruled_page = RuledPage(self.gray, self.mask)
+        perspective = reference.ruled_page.align(self.ruled_page)
+        if perspective is not None:
+            return None, perspective
+
         if reference.features is None:
             reference.features = _features(reference.gray, reference.mask, 6000)
         transform = self._feature_transform(*reference.features, reference.gray.shape, spread=0.5)
@@ -238,10 +251,40 @@ class PageMatcher:
     def _warp_crop(self, transform, shape):
         h, w = shape
         corners = np.float32([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]])
-        mapped = cv2.transform(corners[None], transform)[0]
+        perspective = transform.shape == (3, 3)
+        mapped = (
+            cv2.perspectiveTransform(corners[None], transform)[0]
+            if perspective
+            else cv2.transform(corners[None], transform)[0]
+        )
         height, width = self.gray.shape
-        if (mapped < -1).any() or (mapped[:, 0] > width).any() or (mapped[:, 1] > height).any():
+        if (
+            not np.isfinite(mapped).all()
+            or (mapped < -1).any()
+            or (mapped[:, 0] > width).any()
+            or (mapped[:, 1] > height).any()
+        ):
             return None
+        if perspective:
+            horizontal = (
+                np.linalg.norm(mapped[1] - mapped[0]) + np.linalg.norm(mapped[2] - mapped[3])
+            ) / 2
+            vertical = (
+                np.linalg.norm(mapped[3] - mapped[0]) + np.linalg.norm(mapped[2] - mapped[1])
+            ) / 2
+            sx, sy = horizontal / max(1, w - 1), vertical / max(1, h - 1)
+            if not (0.25 <= sx <= 4 and 0.25 <= sy <= 4):
+                return None
+            output_size = (max(1, round(w * sx)), max(1, round(h * sy)))
+            inverse = np.diag([sx, sy, 1.0]) @ np.linalg.inv(transform)
+            upright = cv2.warpPerspective(
+                self.rgb,
+                inverse,
+                output_size,
+                flags=cv2.INTER_CUBIC,
+                borderMode=cv2.BORDER_REPLICATE,
+            )
+            return Image.fromarray(upright)
         # Preserve the target scan's resolution while undoing its rotation.
         scale = float(np.linalg.norm(transform[:, 0]))
         output_size = (max(1, round(w * scale)), max(1, round(h * scale)))

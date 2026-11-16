@@ -49,7 +49,9 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   The default `*` matches all supported documents and images in that folder.
 - **Recognize** requires at least one area. It first aligns the surrounding form on the
   corresponding page of every matching file, allowing rotation, movement, and changes
-  in scale. All selected areas use that shared alignment, so small or repeated table
+  in scale. Photos of ruled forms also use the paper outline and internal table lines
+  to correct perspective; the outline alone is never enough to accept a match.
+  All selected areas use that shared alignment, so small or repeated table
   cells keep their positions. Detected text is excluded from image matching; borders
   and graphics establish alignment even when field values change. If page alignment
   cannot be verified, individual areas are matched using their own visual detail.
