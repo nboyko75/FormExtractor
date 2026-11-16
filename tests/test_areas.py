@@ -92,6 +92,42 @@ def test_batch_missing_pages_and_unreadable_files_do_not_stop_other_files(
     assert "Error" in batch_text(result, Translator()).splitlines()[0]
 
 
+@pytest.mark.parametrize(
+    "recognized, expected",
+    [
+        ('<div style="text-align: center;">00123</div>', "00123"),
+        ('<DIV title="a > b"><div>ІСВ 1МБ</div></DIV>', "ІСВ 1МБ"),
+        ("<div>First</div><div>Second</div>", "First\n\nSecond"),
+        ("<div> </div>", ""),
+        ("  Reading < 5 and > 1  ", "Reading < 5 and > 1"),
+        (
+            "<div><table><tr><td>4291</td></tr></table></div>",
+            "<table><tr><td>4291</td></tr></table>",
+        ),
+    ],
+)
+def test_recognized_values_omit_div_wrappers(image_path, no_text_detector, recognized, expected):
+    class OCR:
+        def analyze(self, image):
+            return LayoutResult(markdown=recognized, data={})
+
+    updates = []
+    result = recognize_batch(
+        str(image_path),
+        [str(image_path)],
+        [area()],
+        "*.png",
+        layout=OCR(),
+        text_detector=no_text_detector,
+        on_row=updates.append,
+    )
+    assert result.rows[0].error is None
+    assert result.rows[0].values == [expected]
+    assert all(update.values == [expected] for update in updates)
+    assert BatchResult.model_validate_json(result.model_dump_json()).rows[0].values == [expected]
+    assert "<div" not in batch_text(result, Translator()).lower()
+
+
 def test_file_masks_are_local_case_insensitive_and_exclude_unsupported_files(tmp_path):
     for name in ["b.PDF", "a.png", "scan.jpg", "notes.txt"]:
         (tmp_path / name).touch()
@@ -110,6 +146,10 @@ def test_file_masks_are_local_case_insensitive_and_exclude_unsupported_files(tmp
 def test_area_validation_and_preferences_preserve_unrelated_settings(tmp_path):
     valid = area().model_dump()
     assert read_areas([valid, valid, {**valid, "x2": -1}, "broken"]) == [area()]
+    legacy = {key: value for key, value in valid.items() if key != "kind"}
+    assert read_areas([legacy])[0].kind == "text"
+    assert read_areas([{**valid, "kind": "date"}])[0].kind == "date"
+    assert read_areas([{**valid, "kind": "unknown"}]) == []
     with pytest.raises(ValueError):
         area(x1=0.8, x2=0.2)
     path = tmp_path / "settings.json"
@@ -127,6 +167,35 @@ def test_no_area_or_empty_batch_never_runs_ocr():
         recognize_batch("scan.png", ["scan.png"], [], "*", layout=ColorOCR())
     with pytest.raises(ExtractionError, match="No supported files"):
         recognize_batch("scan.png", [], [area()], "*", layout=ColorOCR())
+
+
+def test_mixed_area_types_reach_recognition_and_survive_saved_results(image_path, no_text_detector):
+    selected = [
+        area(number).model_copy(update={"kind": kind})
+        for number, kind in enumerate(("text", "number", "date"), 1)
+    ]
+    calls = []
+
+    class OCR:
+        def analyze(self, image, *, kind="text"):
+            calls.append(kind)
+            return LayoutResult(
+                {"text": "Vehicle", "number": "-001,5", "date": "21.03.2026"}[kind], {}
+            )
+
+    result = recognize_batch(
+        str(image_path),
+        [str(image_path)],
+        selected,
+        "*.png",
+        layout=OCR(),
+        text_detector=no_text_detector,
+    )
+    assert calls == ["text", "number", "date"]
+    assert result.rows[0].error is None
+    assert result.rows[0].values == ["Vehicle", "-001,5", "21.03.2026"]
+    restored = BatchResult.model_validate_json(result.model_dump_json())
+    assert [area.kind for area in restored.areas] == calls
 
 
 @pytest.mark.parametrize("save_areas", [False, True])

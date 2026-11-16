@@ -1,9 +1,19 @@
 import os
+import re
 import tempfile
 from pathlib import Path
 
 from .errors import ExtractionError
 from .schema import DocumentResult
+
+
+def strip_div_wrappers(text: str) -> str:
+    """Remove OCR layout divs while retaining their contents and block boundaries."""
+    # Match only div tags, allowing quoted attributes to contain '>'. Preserve
+    # other Markdown/HTML (such as tables) and literal comparisons in the text.
+    return re.sub(
+        r"""</?div\b(?:[^<>"']|"[^"]*"|'[^']*')*>""", "\n", text, flags=re.IGNORECASE
+    ).strip()
 
 
 def to_text(result: DocumentResult) -> str:

@@ -9,6 +9,7 @@ from typing import Any
 from PIL import Image
 
 from .errors import ExtractionError
+from .recognition_types import AREA_CHARACTERS, AreaKind
 
 
 @dataclass
@@ -115,13 +116,40 @@ class PaddleTextDetector:
             raise ExtractionError(f"Text detection failed: {_exception_details(exc)}") from exc
 
 
+class _CharacterLimitedDecoder:
+    """Limit CTC choices before decoding without changing the model's label indices."""
+
+    def __init__(self, decoder, characters: str) -> None:
+        import numpy as np
+
+        self.decoder = decoder
+        alphabet = decoder.character
+        if not set("0123456789").issubset(alphabet):
+            raise ExtractionError("The recognition model does not support all digits")
+        allowed = set(characters)
+        self.allowed = np.array([char in allowed for char in alphabet], dtype=bool)
+        self.allowed[decoder.get_ignored_tokens()] = True  # Keep CTC blank/repeat separation.
+
+    def __call__(self, predictions, **kwargs):
+        import numpy as np
+
+        scores = np.array(predictions[0], copy=True)
+        if scores.ndim != 3 or scores.shape[-1] != len(self.allowed):
+            raise ExtractionError("Unexpected character recognition output shape")
+        scores[..., ~self.allowed] = -np.inf
+        return self.decoder([scores, *predictions[1:]], **kwargs)
+
+
 class PaddleLayout:
     def __init__(self, *, device: str = "cpu", lang: str = "en") -> None:
         self.device = device
         self.lang = lang
         self._pipeline = None
+        self._value_recognizer = None
 
-    def analyze(self, image: Image.Image) -> LayoutResult:
+    def analyze(self, image: Image.Image, *, kind: AreaKind = "text") -> LayoutResult:
+        if kind != "text":
+            return self._analyze_value(image, kind)
         _ensure_standard_streams()
         _prepare_model_cache()
         try:
@@ -157,6 +185,46 @@ class PaddleLayout:
             if not isinstance(markdown, str) or not isinstance(data, dict):
                 raise ExtractionError("Unexpected PP-StructureV3 output format")
             return LayoutResult(markdown=markdown, data=data)
+        except ExtractionError:
+            raise
+        except Exception as exc:
+            raise ExtractionError(f"PaddleOCR failed: {_exception_details(exc)}") from exc
+
+    def _analyze_value(self, image: Image.Image, kind: AreaKind) -> LayoutResult:
+        """Read a selected number/date directly with a restricted character decoder."""
+        if kind not in AREA_CHARACTERS:
+            raise ExtractionError(f"Unknown recognition area type: {kind}")
+        _ensure_standard_streams()
+        _prepare_model_cache()
+        try:
+            import numpy as np
+            from paddleocr import TextRecognition
+
+            if self._value_recognizer is None:
+                self._value_recognizer = TextRecognition(
+                    model_name="PP-OCRv5_server_rec", device=self.device
+                )
+            predictor = self._value_recognizer.paddlex_predictor
+            # PaddleOCR 3.3/PaddleX exposes the CTC decoder on its predictor.
+            # Never replace its dictionary: model output indices must stay fixed.
+            if predictor.config.get("PostProcess", {}).get("name") != "CTCLabelDecode":
+                raise ExtractionError("This recognition model cannot restrict characters")
+            original = predictor.post_op
+            predictor.post_op = _CharacterLimitedDecoder(original, AREA_CHARACTERS[kind])
+            try:
+                bgr = np.asarray(image.convert("RGB"))[:, :, ::-1].copy()
+                results = list(self._value_recognizer.predict(input=bgr))
+            finally:
+                # A date restriction must not leak into the next number or text area.
+                predictor.post_op = original
+            if len(results) != 1 or not isinstance(results[0].get("rec_text"), str):
+                raise ExtractionError("Unexpected character recognition output format")
+            text = results[0]["rec_text"].strip()
+            if any(char not in AREA_CHARACTERS[kind] for char in text):
+                raise ExtractionError("Recognition returned characters outside the selected type")
+            return LayoutResult(
+                markdown=text, data={"rec_text": text, "rec_score": results[0].get("rec_score")}
+            )
         except ExtractionError:
             raise
         except Exception as exc:

@@ -553,8 +553,8 @@ def test_source_actions_and_zoom_layout(form):
     assert form.exit_button.winfo_rootx() > form.save_button.winfo_rootx()
     assert form.import_button.master == form.filename_label.master
     assert form.import_button.grid_info()["row"] == form.filename_label.grid_info()["row"]
-    assert form.import_button.winfo_rootx() >= (
-        form.filename_label.winfo_rootx() + form.filename_label.winfo_width()
+    assert form.filename_label.winfo_rootx() >= (
+        form.import_button.winfo_rootx() + form.import_button.winfo_width()
     )
     assert form.ocr_language_label.grid_info()["row"] == form.ocr_language_box.grid_info()["row"]
     assert form.stop_button.winfo_rootx() < form.exit_button.winfo_rootx()
@@ -575,9 +575,14 @@ def test_source_actions_and_zoom_layout(form):
     )
     assert not form.zoom_in_button.cget("text")
     assert form.zoom_in_button.cget("image")
-    assert not form.add_area_button.cget("text")
-    assert not form.remove_area_button.cget("text")
-    assert form.add_area_button.cget("image") and form.remove_area_button.cget("image")
+    assert len(form.area_buttons) == 6
+    for (kind, _), button in form.area_buttons.items():
+        assert button.cget("image")
+        assert button.master.cget("text") == form.tr(f"area_type_{kind}")
+        assert button.winfo_ismapped()
+        assert (
+            button.winfo_rootx() + button.winfo_width() <= left.winfo_rootx() + left.winfo_width()
+        )
 
 
 def area_point(form, x, y):
@@ -588,12 +593,45 @@ def area_point(form, x, y):
     }
 
 
-def draw_area(form, start=(0.1, 0.2), end=(0.6, 0.7)):
-    if form.area_editor.mode != "add":
-        form.add_area_button.invoke()
+def draw_area(form, start=(0.1, 0.2), end=(0.6, 0.7), *, kind="text"):
+    if form.area_editor.mode != "add" or form.area_editor.kind != kind:
+        form.area_buttons[kind, "add"].invoke()
     form.canvas.event_generate("<ButtonPress-1>", **area_point(form, *start))
     form.canvas.event_generate("<B1-Motion>", **area_point(form, *end))
     form.canvas.event_generate("<ButtonRelease-1>", **area_point(form, *end))
+
+
+def test_typed_areas_switch_modes_remove_only_the_selected_type_and_persist(form, image_path):
+    from formextractor.areas import source_key
+    from formextractor.settings import load_settings
+
+    assert all(button.instate(["disabled"]) for button in form.area_buttons.values())
+    form.root.deiconify()
+    form.root.update()
+    form.load_document(image_path)
+    for kind in ("text", "number", "date"):
+        assert form.area_buttons[kind, "remove"].instate(["disabled"])
+        # Overlap the types so removal has to respect type, not stacking order.
+        draw_area(form, kind=kind)
+        assert form.area_editor.kind == kind and form.area_editor.mode == "add"
+        assert form.area_buttons[kind, "add"].instate(["pressed"])
+        assert form.area_buttons[kind, "remove"].instate(["!disabled"])
+    assert [area.kind for area in form.area_editor.areas] == ["text", "number", "date"]
+    stored = load_settings(form.preferences_path)["files"][source_key(image_path)]["areas"]
+    assert [area["kind"] for area in stored] == ["text", "number", "date"]
+    form.load_document(image_path)
+    assert [area.kind for area in form.area_editor.areas] == ["text", "number", "date"]
+    form.area_buttons["number", "remove"].invoke()
+    form.canvas.event_generate("<ButtonPress-1>", **area_point(form, 0.3, 0.4))
+    assert [(area.number, area.kind) for area in form.area_editor.areas] == [
+        (1, "text"),
+        (3, "date"),
+    ]
+    assert form.area_buttons["number", "remove"].instate(["disabled"])
+    assert form.area_editor.mode is None
+    form.area_buttons["date", "add"].invoke()
+    form.area_buttons["date", "add"].invoke()
+    assert form.area_editor.mode is None
 
 
 def test_draw_zoom_remove_and_restore_areas(form, image_path, tmp_path):
@@ -623,10 +661,10 @@ def test_draw_zoom_remove_and_restore_areas(form, image_path, tmp_path):
             top + first.y2 * height,
         ]
     )
-    assert form.canvas.itemcget(label, "text") == "1"
+    assert form.canvas.itemcget(label, "text") == "1: Text"
     draw_area(form, (0.7, 0.2), (0.9, 0.6))
     assert [area.number for area in form.area_editor.areas] == [1, 2]
-    form.remove_area_button.invoke()
+    form.area_buttons["text", "remove"].invoke()
     form.canvas.event_generate("<Motion>", **area_point(form, 0.3, 0.4))
     assert form.canvas.cget("cursor") == "arrow"
     assert form.canvas.find_withtag("remove_pointer")
@@ -820,7 +858,7 @@ def test_masked_batch_request_displays_and_saves_tabular_results(
     assert form.save_areas_checkbox.instate(["disabled"])
     assert job.options["areas"] == [form.area_editor.areas[0].model_dump()]
     assert form.mask_entry.instate(["disabled"])
-    assert form.add_area_button.instate(["disabled"])
+    assert all(button.instate(["disabled"]) for button in form.area_buttons.values())
     result = BatchResult(
         source=str(image_path),
         language="en",

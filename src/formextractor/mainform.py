@@ -20,6 +20,7 @@ from .jobs import RecognitionJob
 from .localization import Translator
 from .ocr_languages import OCR_LANGUAGES
 from .output import to_text, validate_output_path, write_output
+from .recognition_types import AREA_KINDS
 from .schema import DocumentResult
 from .settings import load_language, load_settings, save_language, update_settings
 from .widgets import ToolTip, arrow_icon, circle_icon, exit_icon, import_icon, zoom_icon
@@ -133,7 +134,7 @@ class MainForm:
         style.configure(
             "Vertical.Sash",
             sashrelief="raised",
-            sashthickness=max(8, round(8 * root.winfo_fpixels("1i") / 96)),
+            sashthickness=max(1, root.winfo_pixels("2m")),
             sashpad=0,
             handlesize=0,
             background=style.lookup("TFrame", "background") or "#d9d9d9",
@@ -155,7 +156,7 @@ class MainForm:
         )
         source_header = ttk.Frame(left)
         source_header.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        source_header.columnconfigure(0, weight=1)
+        source_header.columnconfigure(1, weight=1)
         self.import_icons = {
             disabled: import_icon(root, disabled=disabled) for disabled in (False, True)
         }
@@ -164,12 +165,12 @@ class MainForm:
             image=(self.import_icons[False], "disabled", self.import_icons[True]),
             command=self.import_document,
         )
-        self.import_button.grid(row=0, column=1, sticky="nw", padx=(8, 0))
+        self.import_button.grid(row=0, column=0, sticky="nw", padx=(0, 8))
         self.import_tooltip = ToolTip(self.import_button, self.tr("import"))
         self.filename_label = ttk.Label(
             source_header, textvariable=self.filename, width=1, justify="left"
         )
-        self.filename_label.grid(row=0, column=0, sticky="ew")
+        self.filename_label.grid(row=0, column=1, sticky="ew")
         self.filename_label.bind(
             "<Configure>",
             lambda event: self.filename_label.configure(wraplength=max(1, event.width)),
@@ -192,7 +193,11 @@ class MainForm:
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<Button-4>", self._on_mousewheel)
         self.canvas.bind("<Button-5>", self._on_mousewheel)
-        self.area_editor = AreaEditor(self.canvas, self._areas_changed)
+        self.area_editor = AreaEditor(
+            self.canvas,
+            self._areas_changed,
+            type_labels={kind: self.tr(f"area_type_{kind}") for kind in AREA_KINDS},
+        )
         root.bind("<Escape>", lambda event: self.set_area_mode(None))
         navigation = ttk.Frame(left, padding=(0, 8))
         navigation.grid(row=3, column=0, sticky="ew")
@@ -202,39 +207,35 @@ class MainForm:
         page_controls = ttk.Frame(navigation)
         page_controls.grid(row=0, column=1, sticky="w")
         area_controls = ttk.Frame(navigation)
-        area_controls.grid(row=0, column=2, sticky="e")
+        area_controls.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         self.area_icons = {
             (plus, disabled): circle_icon(root, plus=plus, disabled=disabled)
             for plus in (True, False)
             for disabled in (True, False)
         }
-        self.add_area_button = ttk.Button(
-            area_controls,
-            image=(self.area_icons[True, False], "disabled", self.area_icons[True, True]),
-            command=lambda: self.set_area_mode("add"),
-        )
-        self.add_area_button.pack(side="left", padx=(4, 4))
-        self.remove_area_button = ttk.Button(
-            area_controls,
-            image=(self.area_icons[False, False], "disabled", self.area_icons[False, True]),
-            command=lambda: self.set_area_mode("remove"),
-        )
-        self.remove_area_button.pack(side="left")
-        ToolTip(self.add_area_button, self.tr("add_area"))
-        ToolTip(self.remove_area_button, self.tr("remove_area"))
+        self.area_buttons = {}
+        for column, kind in enumerate(AREA_KINDS):
+            area_controls.columnconfigure(column, weight=1)
+            group = ttk.LabelFrame(area_controls, text=self.tr(f"area_type_{kind}"), padding=4)
+            group.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 4, 0))
+            for action, plus in (("add", True), ("remove", False)):
+                button = ttk.Button(
+                    group,
+                    image=(self.area_icons[plus, False], "disabled", self.area_icons[plus, True]),
+                    command=lambda action=action, kind=kind: self.set_area_mode(action, kind),
+                )
+                button.pack(side="left", expand=True, padx=2)
+                ToolTip(button, self.tr(f"{action}_{kind}"))
+                self.area_buttons[kind, action] = button
 
         def arrange_navigation(event):
-            required = (
-                sum(
-                    frame.winfo_reqwidth()
-                    for frame in (zoom_controls, page_controls, area_controls)
-                )
-                + 12
-            )
+            required = sum(frame.winfo_reqwidth() for frame in (zoom_controls, page_controls)) + 12
             if event.width < required:
-                page_controls.grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
+                page_controls.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+                area_controls.grid(row=2)
             else:
                 page_controls.grid(row=0, column=1, columnspan=1, sticky="w", pady=0)
+                area_controls.grid(row=1)
 
         navigation.bind("<Configure>", arrange_navigation)
         self.zoom_icons = {
@@ -397,7 +398,8 @@ class MainForm:
         self.ocr_language_box.configure(state="disabled" if busy else "readonly")
         self.mask_entry.configure(state="disabled" if busy else "normal")
         self.area_editor.enabled = not busy
-        if busy or (self.area_editor.mode == "remove" and not self.area_editor.areas):
+        removable = {area.kind for area in self.area_editor.areas if area.page == self.page_number}
+        if busy or (self.area_editor.mode == "remove" and self.area_editor.kind not in removable):
             self.area_editor.set_mode(None)
         self._update_zoom_controls()
         for widget, enabled in [
@@ -408,12 +410,13 @@ class MainForm:
             (self.stop_button, busy),
             (self.previous_button, self.page_number > 1),
             (self.next_button, self.page_number < self.page_count),
-            (self.add_area_button, self.source is not None and not busy),
-            (self.remove_area_button, bool(self.area_editor.areas) and not busy),
         ]:
             widget.state(["!disabled"] if enabled else ["disabled"])
-        for button, mode in ((self.add_area_button, "add"), (self.remove_area_button, "remove")):
-            button.state(["pressed"] if self.area_editor.mode == mode else ["!pressed"])
+        for (kind, mode), button in self.area_buttons.items():
+            enabled = (self.source is not None if mode == "add" else kind in removable) and not busy
+            button.state(["!disabled"] if enabled else ["disabled"])
+            selected = self.area_editor.mode == mode and self.area_editor.kind == kind
+            button.state(["pressed"] if selected else ["!pressed"])
         for editor in (self.text_editor, self.json_editor):
             editor.configure(state="normal" if self.result is not None and not busy else "disabled")
 
@@ -855,10 +858,11 @@ class MainForm:
         self._persist_settings()
         self._update_controls()
 
-    def set_area_mode(self, mode) -> None:
+    def set_area_mode(self, mode, kind="text") -> None:
         if self.source is None or self.job is not None:
             return
-        self.area_editor.set_mode(None if self.area_editor.mode == mode else mode)
+        active = self.area_editor.mode == mode and self.area_editor.kind == kind
+        self.area_editor.set_mode(None if active else mode, kind)
         self._update_controls()
 
     def _shutdown(self) -> None:

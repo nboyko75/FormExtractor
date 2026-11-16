@@ -16,14 +16,16 @@ from pydantic import Field, model_validator
 from .area_matching import AreaTemplate, PageMatcher, PageTemplate
 from .documents import IMAGE_EXTENSIONS, iter_pages
 from .errors import ExtractionError
-from .output import validate_output_path
+from .output import strip_div_wrappers, validate_output_path
 from .paddle import PaddleLayout, PaddleTextDetector
+from .recognition_types import AreaKind
 from .schema import StrictModel
 
 
 class RecognitionArea(StrictModel):
     number: int = Field(ge=1)
     page: int = Field(ge=1)
+    kind: AreaKind = "text"
     x1: float = Field(ge=0, le=1, allow_inf_nan=False)
     y1: float = Field(ge=0, le=1, allow_inf_nan=False)
     x2: float = Field(ge=0, le=1, allow_inf_nan=False)
@@ -207,7 +209,12 @@ def recognize_batch(
                             with matcher.crop(template) as crop:
                                 if save_areas:
                                     crops[area.number] = crop.copy()
-                                row.values[index] = layout.analyze(crop).markdown.strip()
+                                recognized = (
+                                    layout.analyze(crop)
+                                    if area.kind == "text"
+                                    else layout.analyze(crop, kind=area.kind)
+                                )
+                                row.values[index] = strip_div_wrappers(recognized.markdown)
                         except Exception as exc:
                             errors.append(f"Area {area.number}: {exc}")
                             row.error = "; ".join(errors)

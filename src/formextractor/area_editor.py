@@ -1,15 +1,18 @@
 """Preview interactions for drawing and deleting page-relative recognition areas."""
 
 from .areas import RecognitionArea
+from .recognition_types import AREA_KINDS
 
 
 class AreaEditor:
-    def __init__(self, canvas, changed) -> None:
+    def __init__(self, canvas, changed, *, type_labels=None) -> None:
         self.canvas = canvas
         self.changed = changed
         self.areas = []
         self.page = 1
         self.mode = None
+        self.kind = "text"
+        self.type_labels = type_labels or {kind: kind.title() for kind in AREA_KINDS}
         self.enabled = True
         self.image_box = None
         self.start = None
@@ -20,8 +23,11 @@ class AreaEditor:
         canvas.bind("<Motion>", self.pointer)
         canvas.bind("<Leave>", lambda event: canvas.delete("remove_pointer"))
 
-    def set_mode(self, mode) -> None:
+    def set_mode(self, mode, kind="text") -> None:
+        if kind not in AREA_KINDS:
+            raise ValueError(f"Unknown area type: {kind}")
         self.mode = mode if self.enabled else None
+        self.kind = kind
         self.start = self.end = None
         self.canvas.delete("remove_pointer")
         self.canvas.configure(cursor="crosshair" if self.mode == "add" else "arrow")
@@ -69,7 +75,12 @@ class AreaEditor:
         elif self.mode == "remove" and self.enabled and point is not None:
             x, y = point
             for area in reversed(self.areas):
-                if area.page == self.page and area.x1 <= x <= area.x2 and area.y1 <= y <= area.y2:
+                if (
+                    area.page == self.page
+                    and area.kind == self.kind
+                    and area.x1 <= x <= area.x2
+                    and area.y1 <= y <= area.y2
+                ):
                     self.areas.remove(area)
                     self.render()
                     self.changed()
@@ -97,6 +108,7 @@ class AreaEditor:
                 RecognitionArea(
                     number=max((area.number for area in self.areas), default=0) + 1,
                     page=self.page,
+                    kind=self.kind,
                     x1=x1,
                     y1=y1,
                     x2=x2,
@@ -106,12 +118,13 @@ class AreaEditor:
             self.changed()
         self.render()
 
-    def rectangle(self, number, x1, y1, x2, y2, *, draft=False) -> None:
+    def rectangle(self, number, x1, y1, x2, y2, *, kind="text", draft=False) -> None:
         left, top, width, height = self.image_box
         box = left + x1 * width, top + y1 * height, left + x2 * width, top + y2 * height
+        color = {"text": "#d00000", "number": "#1556b8", "date": "#16713b"}[kind]
         self.canvas.create_rectangle(
             *box,
-            outline="#e00000",
+            outline=color,
             width=2,
             dash=(4, 2) if draft else (),
             tags="areas",
@@ -119,8 +132,8 @@ class AreaEditor:
         self.canvas.create_text(
             box[0],
             box[1] - 3,
-            text=str(number),
-            fill="#d00000",
+            text=f"{number}: {self.type_labels[kind]}",
+            fill=color,
             anchor="sw",
             font=("Segoe UI", 10, "bold"),
             tags="areas",
@@ -132,7 +145,7 @@ class AreaEditor:
             return
         for area in self.areas:
             if area.page == self.page:
-                self.rectangle(area.number, area.x1, area.y1, area.x2, area.y2)
+                self.rectangle(area.number, area.x1, area.y1, area.x2, area.y2, kind=area.kind)
         if self.start is not None and self.end is not None:
             x1, x2 = sorted((self.start[0], self.end[0]))
             y1, y2 = sorted((self.start[1], self.end[1]))
@@ -142,5 +155,6 @@ class AreaEditor:
                 y1,
                 x2,
                 y2,
+                kind=self.kind,
                 draft=True,
             )

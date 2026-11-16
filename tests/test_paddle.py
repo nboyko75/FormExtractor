@@ -11,6 +11,112 @@ from PIL import Image
 from formextractor import paddle as paddle_adapter
 from formextractor.errors import ExtractionError
 from formextractor.paddle import PaddleLayout, PaddleTextDetector
+from formextractor.recognition_types import AREA_CHARACTERS
+
+
+class FakeCTCDecoder:
+    character = ["blank", *"0123456789.,+- /O"]
+
+    def get_ignored_tokens(self):
+        return [0]
+
+    def __call__(self, predictions, **kwargs):
+        indices = predictions[0].argmax(axis=-1)[0]
+        text = "".join(
+            self.character[index]
+            for position, index in enumerate(indices)
+            if index != 0 and (position == 0 or index != indices[position - 1])
+        )
+        return [text], [0.9]
+
+
+def character_scores(text):
+    alphabet = FakeCTCDecoder.character
+    scores = np.zeros((1, len(text) * 2, len(alphabet)), dtype=np.float32)
+    scores[:, 1::2, 0] = 1  # Blank separates repeated characters, including leading zeroes.
+    for position, char in enumerate(text):
+        scores[0, position * 2, alphabet.index(char)] = 0.4
+        scores[0, position * 2, alphabet.index("O")] = 0.6
+    return scores
+
+
+@pytest.mark.parametrize(
+    "kind,value",
+    [("number", "-001,5"), ("number", "+12.50"), ("date", "21/03/2026"), ("date", "2026-03-21")],
+)
+def test_restricted_decoding_chooses_allowed_characters_before_ctc(kind, value):
+    scores = character_scores(value)
+    original = scores.copy()
+    decoder = paddle_adapter._CharacterLimitedDecoder(FakeCTCDecoder(), AREA_CHARACTERS[kind])
+    assert FakeCTCDecoder()([scores])[0] == ["O" * len(value)]
+    assert decoder([scores])[0] == [value]
+    np.testing.assert_array_equal(scores, original)
+
+
+def test_number_and_date_have_different_decoding_alphabets():
+    scores = character_scores("+1,2/3")
+    # Let CTC blank win whenever punctuation is excluded for the selected type.
+    scores[:, ::2, 0] = 0.3
+    number = paddle_adapter._CharacterLimitedDecoder(FakeCTCDecoder(), AREA_CHARACTERS["number"])
+    date = paddle_adapter._CharacterLimitedDecoder(FakeCTCDecoder(), AREA_CHARACTERS["date"])
+    assert number([scores])[0] == ["+1,23"]
+    assert date([scores])[0] == ["12/3"]
+    blank = np.zeros_like(scores)
+    blank[:, :, 0] = 1
+    assert number([blank])[0] == [""]
+
+
+def test_typed_recognition_is_lazy_reuses_model_and_restores_decoder_after_failure(monkeypatch):
+    instances = []
+
+    class Recognizer:
+        def __init__(self, **kwargs):
+            assert kwargs == {"model_name": "PP-OCRv5_server_rec", "device": "cpu"}
+            self.decoder = FakeCTCDecoder()
+            self.paddlex_predictor = SimpleNamespace(
+                config={"PostProcess": {"name": "CTCLabelDecode"}}, post_op=self.decoder
+            )
+            self.value = "-001,5"
+            self.fail = False
+            instances.append(self)
+
+        def predict(self, input):
+            np.testing.assert_array_equal(input[0, 0], [0, 0, 255])
+            if self.fail:
+                raise RuntimeError("Recognition failed")
+            texts, scores = self.paddlex_predictor.post_op([character_scores(self.value)])
+            return [{"rec_text": texts[0], "rec_score": scores[0]}]
+
+    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(TextRecognition=Recognizer))
+    adapter = PaddleLayout(lang="uk")
+    assert not instances
+    with Image.new("RGB", (40, 20), "red") as image:
+        assert adapter.analyze(image, kind="number").markdown == "-001,5"
+        recognizer = instances[0]
+        assert recognizer.paddlex_predictor.post_op is recognizer.decoder
+        recognizer.value = "21.03.2026"
+        assert adapter.analyze(image, kind="date").markdown == "21.03.2026"
+        assert recognizer.paddlex_predictor.post_op is recognizer.decoder
+        recognizer.fail = True
+        with pytest.raises(ExtractionError, match="Recognition failed"):
+            adapter.analyze(image, kind="date")
+        assert recognizer.paddlex_predictor.post_op is recognizer.decoder
+        recognizer.fail = False
+        recognizer.value = "+12.5"
+        assert adapter.analyze(image, kind="number").markdown == "+12.5"
+        # Text recognition still follows the original full-alphabet path.
+        adapter._pipeline = SimpleNamespace(
+            predict=lambda input: [
+                SimpleNamespace(markdown={"markdown_texts": "Model O1"}, json={})
+            ]
+        )
+        monkeypatch.setitem(
+            sys.modules,
+            "paddleocr",
+            SimpleNamespace(TextRecognition=Recognizer, PPStructureV3=object),
+        )
+        assert adapter.analyze(image).markdown == "Model O1"
+    assert len(instances) == 1
 
 
 def test_unicode_cache_uses_existing_ascii_alias_before_import(monkeypatch, tmp_path):

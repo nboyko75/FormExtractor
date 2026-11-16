@@ -54,6 +54,20 @@ def test_explicit_fields_do_not_guess_labels():
     assert fields[0].number == "1"
 
 
+def test_document_values_omit_div_wrappers_but_keep_original_evidence(image_path):
+    markdown = '<div style="text-align: center;">Identifier: 00123</div>'
+
+    class WrappedLayout:
+        def analyze(self, image):
+            return LayoutResult(markdown, {})
+
+    result = extract_document(image_path, layout=WrappedLayout())
+    assert result.pages[0].text == "Identifier: 00123"
+    assert result.pages[0].fields[0].value == "00123"
+    assert "<div" not in to_text(result)
+    assert result.pages[0].ocr["markdown"] == markdown
+
+
 def test_empty_ocr_is_valid(image_path):
     class BlankLayout:
         def analyze(self, image):

@@ -35,16 +35,25 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   and language codes. English is selected initially; subsequent launches restore the selection.
   The selection is locked while
   recognition is running; a newly selected language may require downloading models.
-- **Import** sits immediately after the source file's full path above the preview. Long paths wrap
-  to fit the pane. Drag the raised divider strip to resize the preview and results panes.
+- **Import** sits immediately before the source file's full path above the preview. Long paths wrap
+  to fit the pane. Drag the raised 2 mm divider strip to resize the preview and results panes.
   **Exit** sits next to **Save** in the right pane.
-- **Circle +** (Add area), at the right of the zoom toolbar, enables a crosshair. Drag over the
-  scan to create a red numbered recognition rectangle. Drawings work at any zoom;
-  very small accidental drags are ignored. Areas belong to the currently displayed page.
-- **Circle −** (Remove area) enables a pointer with a minus badge. Click inside an area to delete
-  it. Remaining area numbers stay unchanged. Press Escape or click the active mode
-  button again to return to dragging/panning. On narrow windows, page navigation
-  wraps below the zoom/area toolbar.
+- **Text / Number / Date** groups below the zoom toolbar each have **+** (Add) and
+  **−** (Remove) buttons. Add enables a crosshair; drag over the value to create a
+  numbered rectangle labelled with its type. Text areas are red, numbers blue,
+  and dates green. Drawings work at any zoom; very small accidental drags are ignored.
+  Areas belong to the currently displayed page. Remove deletes only the chosen type
+  on that page, even when areas overlap. Remaining area numbers stay unchanged.
+  Press Escape or click the active button again to return to dragging/panning.
+  On narrow windows, page navigation wraps below the zoom controls.
+- **Number** areas restrict character decoding to digits, decimal points/commas,
+  signs (`+`, `-`), and spaces. **Date** areas allow digits, `.`, `/`, `-`, and spaces.
+  Select a single value per number/date area. These types use PP-OCRv5's text
+  recognizer with a restricted character set before decoding; text areas continue
+  to use PP-StructureV3 with the selected language. Leading zeroes are preserved,
+  and dates retain their printed order. The numeric recognizer is downloaded on
+  first use if it is not already cached. Existing saved areas default to Text;
+  newly selected types are saved with their coordinates and included in JSON results.
 - **File mask**, above the preview on the right, selects supported files in the imported
   file's folder. Use `*.pdf`, `scan*.png`, or multiple masks such as `*.png;*.jpg`.
   Matching is case-insensitive, alphabetical, and does not recurse into subfolders.
