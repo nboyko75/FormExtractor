@@ -206,8 +206,12 @@ class MainForm:
         zoom_controls.grid(row=0, column=0, sticky="w")
         page_controls = ttk.Frame(navigation)
         page_controls.grid(row=0, column=1, sticky="w")
-        area_controls = ttk.Frame(navigation)
-        area_controls.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        source_actions = ttk.Frame(left)
+        source_actions.grid(row=4, column=0, sticky="ew", pady=(4, 0))
+        source_actions.columnconfigure(2, weight=1)
+        area_controls = ttk.Frame(source_actions)
+        area_controls.grid(row=0, column=0, sticky="sw")
+        style.configure("CompactArea.TButton", padding=0, width=0)
         self.area_icons = {
             (plus, disabled): circle_icon(root, plus=plus, disabled=disabled)
             for plus in (True, False)
@@ -215,16 +219,16 @@ class MainForm:
         }
         self.area_buttons = {}
         for column, kind in enumerate(AREA_KINDS):
-            area_controls.columnconfigure(column, weight=1)
-            group = ttk.LabelFrame(area_controls, text=self.tr(f"area_type_{kind}"), padding=4)
-            group.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 4, 0))
+            group = ttk.LabelFrame(area_controls, text=self.tr(f"area_type_{kind}"), padding=0)
+            group.grid(row=0, column=column, sticky="w", padx=(0 if column == 0 else 2, 0))
             for action, plus in (("add", True), ("remove", False)):
                 button = ttk.Button(
                     group,
+                    style="CompactArea.TButton",
                     image=(self.area_icons[plus, False], "disabled", self.area_icons[plus, True]),
                     command=lambda action=action, kind=kind: self.set_area_mode(action, kind),
                 )
-                button.pack(side="left", expand=True, padx=2)
+                button.pack(side="left")
                 ToolTip(button, self.tr(f"{action}_{kind}"))
                 self.area_buttons[kind, action] = button
 
@@ -232,10 +236,8 @@ class MainForm:
             required = sum(frame.winfo_reqwidth() for frame in (zoom_controls, page_controls)) + 12
             if event.width < required:
                 page_controls.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
-                area_controls.grid(row=2)
             else:
                 page_controls.grid(row=0, column=1, columnspan=1, sticky="w", pady=0)
-                area_controls.grid(row=1)
 
         navigation.bind("<Configure>", arrange_navigation)
         self.zoom_icons = {
@@ -278,20 +280,17 @@ class MainForm:
         ToolTip(self.previous_button, self.tr("previous"))
         ToolTip(self.next_button, self.tr("next"))
         ttk.Label(page_controls, textvariable=self.page_label).pack(side="left", padx=(2, 0))
-        source_actions = ttk.Frame(left)
-        source_actions.grid(row=4, column=0, sticky="ew", pady=(4, 0))
-        source_actions.columnconfigure(1, weight=1)
         self.ocr_language_label = ttk.Label(source_actions, text=self.tr("ocr_language"))
-        self.ocr_language_label.grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.ocr_language_label.grid(row=0, column=1, sticky="sw", padx=(8, 4), pady=(0, 4))
         self.ocr_language_box = ttk.Combobox(
             source_actions,
             textvariable=self.ocr_language,
             values=list(self.ocr_choices),
             state="readonly",
-            width=18,
+            width=12,
             height=18,
         )
-        self.ocr_language_box.grid(row=0, column=1, sticky="ew")
+        self.ocr_language_box.grid(row=0, column=2, sticky="sew", pady=(0, 2))
         self.ocr_language_box.bind("<<ComboboxSelected>>", self._schedule_preferences_save)
         self.save_areas_checkbox = ttk.Checkbutton(
             source_actions,
@@ -299,7 +298,27 @@ class MainForm:
             variable=self.save_areas,
             command=self._schedule_preferences_save,
         )
-        self.save_areas_checkbox.grid(row=0, column=2, sticky="e", padx=(8, 0))
+        self.save_areas_checkbox.grid(row=0, column=3, sticky="se", padx=(8, 0), pady=(0, 2))
+
+        def arrange_source_actions(event):
+            required = (
+                sum(
+                    widget.winfo_reqwidth()
+                    for widget in (
+                        area_controls,
+                        self.ocr_language_label,
+                        self.ocr_language_box,
+                        self.save_areas_checkbox,
+                    )
+                )
+                + 20
+            )
+            if event.width < required:
+                self.save_areas_checkbox.grid(row=1, column=0, columnspan=4, pady=(4, 0))
+            else:
+                self.save_areas_checkbox.grid(row=0, column=3, columnspan=1, pady=(0, 2))
+
+        source_actions.bind("<Configure>", arrange_source_actions)
 
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)

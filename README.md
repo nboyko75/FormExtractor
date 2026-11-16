@@ -38,8 +38,8 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
 - **Import** sits immediately before the source file's full path above the preview. Long paths wrap
   to fit the pane. Drag the raised 2 mm divider strip to resize the preview and results panes.
   **Exit** sits next to **Save** in the right pane.
-- **Text / Number / Date** groups below the zoom toolbar each have **+** (Add) and
-  **−** (Remove) buttons. Add enables a crosshair; drag over the value to create a
+- **Text / Number / Date** groups on the left of the recognition-language row each have
+  compact **+** (Add) and **−** (Remove) buttons. Add enables a crosshair; drag over the value to create a
   numbered rectangle labelled with its type. Text areas are red, numbers blue,
   and dates green. Drawings work at any zoom; very small accidental drags are ignored.
   Areas belong to the currently displayed page. Remove deletes only the chosen type
@@ -73,8 +73,9 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   without stopping the batch. Text-only, small, or repetitive regions need enough
   surrounding form structure to establish page alignment. Recognition runs in a
   separate process, and the status bar displays the file currently being processed.
-- **Save areas**, on the right of the recognition-language row, saves the matched crops after each file
-  finishes recognition. One PNG is written beside the source, for example `invoice_areas.png`
+- **Save areas**, on the right of the recognition-language row, saves the matched crops after
+  each file finishes recognition. The checkbox wraps below that row in narrow panes.
+  One PNG is written beside the source, for example `invoice_areas.png`
   for `invoice.pdf`. Crops are stacked in area-number order, including matches from different
   pages, with white padding when widths differ. Unmatched regions are omitted. Matching crops
   are still saved if OCR fails for an area; failures remain in the results. The checkbox is

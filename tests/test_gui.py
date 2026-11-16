@@ -560,8 +560,7 @@ def test_source_actions_and_zoom_layout(form):
     assert form.stop_button.winfo_rootx() < form.exit_button.winfo_rootx()
     assert form.stop_button.winfo_rootx() < form.save_button.winfo_rootx()
     assert form.save_areas_checkbox.master == form.ocr_language_box.master
-    assert form.save_areas_checkbox.grid_info()["row"] == form.ocr_language_box.grid_info()["row"]
-    assert form.save_areas_checkbox.winfo_rootx() > form.ocr_language_box.winfo_rootx()
+    assert form.save_areas_checkbox.grid_info()["row"] >= form.ocr_language_box.grid_info()["row"]
     assert form.save_areas_checkbox.winfo_rootx() + form.save_areas_checkbox.winfo_width() <= (
         form.save_areas_checkbox.master.winfo_rootx()
         + form.save_areas_checkbox.master.winfo_width()
@@ -580,6 +579,12 @@ def test_source_actions_and_zoom_layout(form):
         assert button.cget("image")
         assert button.master.cget("text") == form.tr(f"area_type_{kind}")
         assert button.winfo_ismapped()
+        controls = button.master.master
+        assert controls.master == form.ocr_language_box.master
+        assert controls.grid_info()["row"] == form.ocr_language_box.grid_info()["row"]
+        assert button.winfo_rootx() + button.winfo_width() <= form.ocr_language_label.winfo_rootx()
+        assert not int(button.pack_info()["expand"])
+        assert button.winfo_width() <= form.zoom_in_button.winfo_width()
         assert (
             button.winfo_rootx() + button.winfo_width() <= left.winfo_rootx() + left.winfo_width()
         )
