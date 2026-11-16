@@ -141,13 +141,28 @@ class MainForm:
         )
         source_header = ttk.Frame(left)
         source_header.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        source_header.columnconfigure(0, weight=1)
-        ttk.Label(source_header, textvariable=self.filename, width=30).grid(
-            row=0, column=0, sticky="ew"
+        source_header.columnconfigure(1, weight=1)
+        self.import_icons = {
+            disabled: import_icon(root, disabled=disabled) for disabled in (False, True)
+        }
+        self.import_button = ttk.Button(
+            source_header,
+            image=(self.import_icons[False], "disabled", self.import_icons[True]),
+            command=self.import_document,
         )
-        ttk.Label(source_header, text=self.tr("file_mask")).grid(row=0, column=1, padx=(8, 4))
+        self.import_button.grid(row=0, column=0, sticky="nw", padx=(0, 8))
+        self.import_tooltip = ToolTip(self.import_button, self.tr("import"))
+        self.filename_label = ttk.Label(
+            source_header, textvariable=self.filename, width=1, justify="left"
+        )
+        self.filename_label.grid(row=0, column=1, sticky="ew")
+        self.filename_label.bind(
+            "<Configure>",
+            lambda event: self.filename_label.configure(wraplength=max(1, event.width)),
+        )
+        ttk.Label(source_header, text=self.tr("file_mask")).grid(row=0, column=2, padx=(8, 4))
         self.mask_entry = ttk.Entry(source_header, textvariable=self.file_mask, width=12)
-        self.mask_entry.grid(row=0, column=2, sticky="e")
+        self.mask_entry.grid(row=0, column=3, sticky="e")
         preview_frame = ttk.Frame(left)
         preview_frame.grid(row=2, column=0, sticky="nsew")
         preview_frame.columnconfigure(0, weight=1)
@@ -250,19 +265,9 @@ class MainForm:
         ttk.Label(page_controls, textvariable=self.page_label).pack(side="left", padx=(2, 0))
         source_actions = ttk.Frame(left)
         source_actions.grid(row=4, column=0, sticky="ew", pady=(4, 0))
-        source_actions.columnconfigure(2, weight=1)
-        self.import_icons = {
-            disabled: import_icon(root, disabled=disabled) for disabled in (False, True)
-        }
-        self.import_button = ttk.Button(
-            source_actions,
-            image=(self.import_icons[False], "disabled", self.import_icons[True]),
-            command=self.import_document,
-        )
-        self.import_button.grid(row=0, column=0, sticky="w", padx=(0, 8))
-        self.import_tooltip = ToolTip(self.import_button, self.tr("import"))
+        source_actions.columnconfigure(1, weight=1)
         self.ocr_language_label = ttk.Label(source_actions, text=self.tr("ocr_language"))
-        self.ocr_language_label.grid(row=0, column=1, sticky="w", padx=(0, 6))
+        self.ocr_language_label.grid(row=0, column=0, sticky="w", padx=(0, 6))
         self.ocr_language_box = ttk.Combobox(
             source_actions,
             textvariable=self.ocr_language,
@@ -271,7 +276,7 @@ class MainForm:
             width=18,
             height=18,
         )
-        self.ocr_language_box.grid(row=0, column=2, sticky="ew")
+        self.ocr_language_box.grid(row=0, column=1, sticky="ew")
         self.ocr_language_box.bind("<<ComboboxSelected>>", self._schedule_preferences_save)
         self.save_areas_checkbox = ttk.Checkbutton(
             source_actions,
@@ -279,7 +284,7 @@ class MainForm:
             variable=self.save_areas,
             command=self._schedule_preferences_save,
         )
-        self.save_areas_checkbox.grid(row=0, column=3, sticky="e", padx=(8, 0))
+        self.save_areas_checkbox.grid(row=0, column=2, sticky="e", padx=(8, 0))
 
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
@@ -446,7 +451,7 @@ class MainForm:
         self.preview = preview
         self.reset_preview_view = True
         self.page_number, self.page_count = page_number, count
-        self.filename.set(source.name)
+        self.filename.set(str(source.resolve()))
         self.page_label.set(self.tr("page", number=page_number, count=count))
         self.result = None
         self.batch_sources = []

@@ -30,12 +30,13 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   enlarge or reduce the scan from 25% to 400% of its fitted size. Use the scrollbars
   or drag the scan to move around an enlarged page. The zoom percentage is preserved
   when importing another document, browsing pages, or restarting the application.
-- **Recognition language**, with its label and selector on one line after Import, selects the language used
+- **Recognition language**, with its label and selector on one line below the preview, selects the language used
   by PaddleOCR. The choices match PP-StructureV3 in PaddleOCR 3.3, with native names
   and language codes. English is selected initially; subsequent launches restore the selection.
   The selection is locked while
   recognition is running; a newly selected language may require downloading models.
-- **Import** sits before the language selector; **Exit** sits next to **Save** in the right pane.
+- **Import** sits next to the source file's full path above the preview. Long paths wrap
+  to fit the pane. **Exit** sits next to **Save** in the right pane.
 - **Circle +** (Add area), at the right of the zoom toolbar, enables a crosshair. Drag over the
   scan to create a red numbered recognition rectangle. Drawings work at any zoom;
   very small accidental drags are ignored. Areas belong to the currently displayed page.
@@ -62,7 +63,7 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   without stopping the batch. Text-only, small, or repetitive regions need enough
   surrounding form structure to establish page alignment. Recognition runs in a
   separate process, and the status bar displays the file currently being processed.
-- **Save areas**, on the right of the Import row, saves the matched crops after each file
+- **Save areas**, on the right of the recognition-language row, saves the matched crops after each file
   finishes recognition. One PNG is written beside the source, for example `invoice_areas.png`
   for `invoice.pdf`. Crops are stacked in area-number order, including matches from different
   pages, with white padding when widths differ. Unmatched regions are omitted. Matching crops

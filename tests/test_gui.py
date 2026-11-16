@@ -102,6 +102,7 @@ def test_import_button_preview_and_initial_states(form, image_path, monkeypatch)
     )
     form.import_button.invoke()
     assert form.source == image_path
+    assert form.filename.get() == str(image_path.resolve())
     assert form.preview.size == (120, 80)
     assert form.page_label.get() == "Page 1 of 1"
     assert form.recognize_button.instate(["disabled"])
@@ -550,12 +551,14 @@ def test_source_actions_and_zoom_layout(form):
     assert form.import_button.master.master == left
     assert form.exit_button.master == form.save_button.master
     assert form.exit_button.winfo_rootx() > form.save_button.winfo_rootx()
-    assert form.import_button.winfo_rootx() < form.ocr_language_box.winfo_rootx()
+    assert form.import_button.master == form.filename_label.master
+    assert form.import_button.grid_info()["row"] == form.filename_label.grid_info()["row"]
+    assert form.import_button.winfo_rootx() < form.filename_label.winfo_rootx()
     assert form.ocr_language_label.grid_info()["row"] == form.ocr_language_box.grid_info()["row"]
     assert form.stop_button.winfo_rootx() < form.exit_button.winfo_rootx()
     assert form.stop_button.winfo_rootx() < form.save_button.winfo_rootx()
-    assert form.save_areas_checkbox.master == form.import_button.master
-    assert form.save_areas_checkbox.grid_info()["row"] == form.import_button.grid_info()["row"]
+    assert form.save_areas_checkbox.master == form.ocr_language_box.master
+    assert form.save_areas_checkbox.grid_info()["row"] == form.ocr_language_box.grid_info()["row"]
     assert form.save_areas_checkbox.winfo_rootx() > form.ocr_language_box.winfo_rootx()
     assert form.save_areas_checkbox.winfo_rootx() + form.save_areas_checkbox.winfo_width() <= (
         form.save_areas_checkbox.master.winfo_rootx()
