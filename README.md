@@ -35,8 +35,9 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   and language codes. English is selected initially; subsequent launches restore the selection.
   The selection is locked while
   recognition is running; a newly selected language may require downloading models.
-- **Import** sits next to the source file's full path above the preview. Long paths wrap
-  to fit the pane. **Exit** sits next to **Save** in the right pane.
+- **Import** sits immediately after the source file's full path above the preview. Long paths wrap
+  to fit the pane. Drag the raised divider strip to resize the preview and results panes.
+  **Exit** sits next to **Save** in the right pane.
 - **Circle +** (Add area), at the right of the zoom toolbar, enables a crosshair. Drag over the
   scan to create a red numbered recognition rectangle. Drawings work at any zoom;
   very small accidental drags are ignored. Areas belong to the currently displayed page.

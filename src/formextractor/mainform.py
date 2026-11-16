@@ -124,6 +124,20 @@ class MainForm:
         self.menu.add_command(label=self.tr("about"), command=self.show_about)
         root.configure(menu=self.menu)
 
+        # The native Windows sash is flat. Use Tk's raised sash element while
+        # retaining ttk's drag handling, resize cursor, and saved position.
+        style = ttk.Style(root)
+        if "FormExtractor.vsash" not in style.element_names():
+            style.element_create("FormExtractor.vsash", "from", "classic", "Sash.vsash")
+        style.layout("Vertical.Sash", [("FormExtractor.vsash", {"sticky": "ns"})])
+        style.configure(
+            "Vertical.Sash",
+            sashrelief="raised",
+            sashthickness=max(8, round(8 * root.winfo_fpixels("1i") / 96)),
+            sashpad=0,
+            handlesize=0,
+            background=style.lookup("TFrame", "background") or "#d9d9d9",
+        )
         panes = ttk.Panedwindow(root, orient="horizontal")
         self.panes = panes
         panes.grid(row=0, column=0, sticky="nsew", padx=16, pady=(12, 0))
@@ -141,7 +155,7 @@ class MainForm:
         )
         source_header = ttk.Frame(left)
         source_header.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        source_header.columnconfigure(1, weight=1)
+        source_header.columnconfigure(0, weight=1)
         self.import_icons = {
             disabled: import_icon(root, disabled=disabled) for disabled in (False, True)
         }
@@ -150,12 +164,12 @@ class MainForm:
             image=(self.import_icons[False], "disabled", self.import_icons[True]),
             command=self.import_document,
         )
-        self.import_button.grid(row=0, column=0, sticky="nw", padx=(0, 8))
+        self.import_button.grid(row=0, column=1, sticky="nw", padx=(8, 0))
         self.import_tooltip = ToolTip(self.import_button, self.tr("import"))
         self.filename_label = ttk.Label(
             source_header, textvariable=self.filename, width=1, justify="left"
         )
-        self.filename_label.grid(row=0, column=1, sticky="ew")
+        self.filename_label.grid(row=0, column=0, sticky="ew")
         self.filename_label.bind(
             "<Configure>",
             lambda event: self.filename_label.configure(wraplength=max(1, event.width)),

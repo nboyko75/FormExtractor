@@ -553,7 +553,9 @@ def test_source_actions_and_zoom_layout(form):
     assert form.exit_button.winfo_rootx() > form.save_button.winfo_rootx()
     assert form.import_button.master == form.filename_label.master
     assert form.import_button.grid_info()["row"] == form.filename_label.grid_info()["row"]
-    assert form.import_button.winfo_rootx() < form.filename_label.winfo_rootx()
+    assert form.import_button.winfo_rootx() >= (
+        form.filename_label.winfo_rootx() + form.filename_label.winfo_width()
+    )
     assert form.ocr_language_label.grid_info()["row"] == form.ocr_language_box.grid_info()["row"]
     assert form.stop_button.winfo_rootx() < form.exit_button.winfo_rootx()
     assert form.stop_button.winfo_rootx() < form.save_button.winfo_rootx()
