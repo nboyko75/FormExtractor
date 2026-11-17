@@ -10,7 +10,7 @@ from PIL import Image
 
 from .documents import iter_pages
 from .errors import ExtractionError
-from .output import strip_div_wrappers
+from .output import clean_recognized_text
 from .paddle import LayoutResult, PaddleLayout
 from .schema import DocumentResult, FormField, PageResult
 
@@ -41,7 +41,7 @@ def extract_document(
             LOGGER.info("Recognizing page %d with PaddleOCR", page.number)
             try:
                 evidence = layout.analyze(page.image)
-                text = strip_div_wrappers(evidence.markdown)
+                text = clean_recognized_text(evidence.markdown)
                 results.append(
                     PageResult(
                         document_type=None,
@@ -73,5 +73,5 @@ def extract_explicit_fields(text: str) -> list[FormField]:
             continue
         match = re.fullmatch(r"(\d+)[.)]\s+(.+)", name.strip())
         number, name = (match[1], match[2]) if match else (None, name.strip())
-        fields.append(FormField(number=number, name=name, value=value.strip()))
+        fields.append(FormField(number=number, name=name, value=clean_recognized_text(value)))
     return fields

@@ -94,8 +94,10 @@ def test_typed_recognition_is_lazy_reuses_model_and_restores_decoder_after_failu
         assert adapter.analyze(image, kind="number").markdown == "-001,5"
         recognizer = instances[0]
         assert recognizer.paddlex_predictor.post_op is recognizer.decoder
-        recognizer.value = "21.03.2026"
-        assert adapter.analyze(image, kind="date").markdown == "21.03.2026"
+        recognizer.value = "2026/03/21."
+        result = adapter.analyze(image, kind="date")
+        assert result.markdown == "21.03.2026"
+        assert result.data["rec_text"] == "2026/03/21."
         assert recognizer.paddlex_predictor.post_op is recognizer.decoder
         recognizer.fail = True
         with pytest.raises(ExtractionError, match="Recognition failed"):

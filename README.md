@@ -51,7 +51,10 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   Select a single value per number/date area. These types use PP-OCRv5's text
   recognizer with a restricted character set before decoding; text areas continue
   to use PP-StructureV3 with the selected language. Leading zeroes are preserved,
-  and dates retain their printed order. The numeric recognizer is downloaded on
+  and dates are formatted as `DD.MM.YYYY`, removing extra punctuation and text.
+  Day-first and year-first numeric dates are accepted; invalid or ambiguous dates
+  are reported as area errors. A four-digit year is required.
+  The numeric recognizer is downloaded on
   first use if it is not already cached. Existing saved areas default to Text;
   newly selected types are saved with their coordinates and included in JSON results.
 - **File mask**, above the preview on the right, selects supported files in the imported

@@ -96,6 +96,16 @@ def test_batch_missing_pages_and_unreadable_files_do_not_stop_other_files(
     "recognized, expected",
     [
         ('<div style="text-align: center;">00123</div>', "00123"),
+        ("# 00123", "00123"),
+        ("#00123", "00123"),
+        ("########00123", "00123"),
+        ("# # 00123", "00123"),
+        ("\u00a0#00123", "00123"),
+        ("#First\n ##Second", "First\nSecond"),
+        ("### ІСВ 1МБ", "ІСВ 1МБ"),
+        ("# First\n  ## Second", "First\nSecond"),
+        ("<div>## 21.03.2026</div>", "21.03.2026"),
+        ("C# / reference #00123", "C# / reference #00123"),
         ('<DIV title="a > b"><div>ІСВ 1МБ</div></DIV>', "ІСВ 1МБ"),
         ("<div>First</div><div>Second</div>", "First\n\nSecond"),
         ("<div> </div>", ""),
@@ -126,6 +136,75 @@ def test_recognized_values_omit_div_wrappers(image_path, no_text_detector, recog
     assert all(update.values == [expected] for update in updates)
     assert BatchResult.model_validate_json(result.model_dump_json()).rows[0].values == [expected]
     assert "<div" not in batch_text(result, Translator()).lower()
+
+
+@pytest.mark.parametrize(
+    "recognized,expected",
+    [
+        ("#21.03.2026р.", "21.03.2026"),
+        ("<div>## 1 / 3 / 2026.</div>", "01.03.2026"),
+        ("2026-03-21", "21.03.2026"),
+        ("21..03//2026...", "21.03.2026"),
+        ("Дата: 21 03 2026 року", "21.03.2026"),
+        ("21032026", "21.03.2026"),
+        ("20260321", "21.03.2026"),
+        ("29/02/2024", "29.02.2024"),
+        ("---", ""),
+    ],
+)
+def test_date_area_formats_and_cleans_values_before_publishing(
+    image_path, no_text_detector, recognized, expected
+):
+    class OCR:
+        def analyze(self, image, *, kind):
+            assert kind == "date"
+            return LayoutResult(recognized, {})
+
+    updates = []
+    result = recognize_batch(
+        str(image_path),
+        [str(image_path)],
+        [area().model_copy(update={"kind": "date"})],
+        "*.png",
+        layout=OCR(),
+        text_detector=no_text_detector,
+        on_row=updates.append,
+    )
+    assert result.rows[0].error is None
+    assert result.rows[0].values == [expected]
+    assert all(update.values == [expected] for update in updates)
+    assert BatchResult.model_validate_json(result.model_dump_json()).rows[0].values == [expected]
+
+
+@pytest.mark.parametrize(
+    "recognized",
+    [
+        "31.02.2026",
+        "29.02.2025",
+        "21.03.26",
+        "21.03.20260",
+        "99.21.03.2026",
+        "21.03.2026 / 22.03.2026",
+        "01020304",
+    ],
+)
+def test_invalid_or_ambiguous_dates_are_reported_without_inventing_values(
+    image_path, no_text_detector, recognized
+):
+    class OCR:
+        def analyze(self, image, *, kind):
+            return LayoutResult(recognized, {})
+
+    result = recognize_batch(
+        str(image_path),
+        [str(image_path)],
+        [area().model_copy(update={"kind": "date"})],
+        "*.png",
+        layout=OCR(),
+        text_detector=no_text_detector,
+    )
+    assert result.rows[0].values == [None]
+    assert "valid date" in result.rows[0].error
 
 
 def test_file_masks_are_local_case_insensitive_and_exclude_unsupported_files(tmp_path):

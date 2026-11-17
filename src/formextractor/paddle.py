@@ -9,6 +9,7 @@ from typing import Any
 from PIL import Image
 
 from .errors import ExtractionError
+from .output import clean_recognized_text
 from .recognition_types import AREA_CHARACTERS, AreaKind
 
 
@@ -223,7 +224,8 @@ class PaddleLayout:
             if any(char not in AREA_CHARACTERS[kind] for char in text):
                 raise ExtractionError("Recognition returned characters outside the selected type")
             return LayoutResult(
-                markdown=text, data={"rec_text": text, "rec_score": results[0].get("rec_score")}
+                markdown=clean_recognized_text(text, kind=kind),
+                data={"rec_text": text, "rec_score": results[0].get("rec_score")},
             )
         except ExtractionError:
             raise

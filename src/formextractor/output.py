@@ -1,19 +1,51 @@
 import os
 import re
 import tempfile
+from datetime import date
 from pathlib import Path
 
 from .errors import ExtractionError
+from .recognition_types import AreaKind
 from .schema import DocumentResult
 
 
-def strip_div_wrappers(text: str) -> str:
-    """Remove OCR layout divs while retaining their contents and block boundaries."""
+def clean_recognized_text(text: str, *, kind: AreaKind = "text") -> str:
+    """Remove OCR div wrappers and heading markers while retaining the values."""
     # Match only div tags, allowing quoted attributes to contain '>'. Preserve
     # other Markdown/HTML (such as tables) and literal comparisons in the text.
-    return re.sub(
-        r"""</?div\b(?:[^<>"']|"[^"]*"|'[^']*')*>""", "\n", text, flags=re.IGNORECASE
-    ).strip()
+    text = re.sub(r"""</?div\b(?:[^<>"']|"[^"]*"|'[^']*')*>""", "\n", text, flags=re.IGNORECASE)
+    # OCR also emits hashes without a separating space, or spaced sequences of
+    # hashes. Remove every leading marker, but keep hashes inside text such as C#.
+    text = re.sub(r"^[^\S\r\n]*(?:#[^\S\r\n]*)+", "", text, flags=re.MULTILINE).strip()
+    return format_recognized_date(text) if kind == "date" else text
+
+
+def format_recognized_date(text: str) -> str:
+    """Format one valid numeric date, discarding separators and surrounding text."""
+    parts = re.findall(r"[0-9]+", text)
+    if not parts:
+        return ""
+    candidates = []
+    if len(parts) == 3:
+        if len(parts[2]) == 4 and all(1 <= len(part) <= 2 for part in parts[:2]):
+            candidates.append((parts[2], parts[1], parts[0]))
+        elif len(parts[0]) == 4 and all(1 <= len(part) <= 2 for part in parts[1:]):
+            candidates.append(tuple(parts))
+    elif len(parts) == 1 and len(parts[0]) == 8:
+        digits = parts[0]
+        candidates.extend(
+            ((digits[4:], digits[2:4], digits[:2]), (digits[:4], digits[4:6], digits[6:]))
+        )
+    valid = set()
+    for year, month, day in candidates:
+        try:
+            valid.add(date(int(year), int(month), int(day)))
+        except ValueError:
+            continue
+    if len(valid) != 1:
+        raise ExtractionError("Could not recognize one valid date with a four-digit year")
+    value = valid.pop()
+    return f"{value.day:02d}.{value.month:02d}.{value.year:04d}"
 
 
 def to_text(result: DocumentResult) -> str:
