@@ -151,6 +151,54 @@ def test_typed_recognition_is_lazy_reuses_model_and_restores_decoder_after_failu
     assert len(instances) == 1
 
 
+@pytest.mark.parametrize(
+    "restricted,retry,expected",
+    [
+        ("21.03.20267.", "21.03.2026p.", "21.03.2026"),
+        ("212026", "21 March 2026", "21.03.2026"),
+        ("", "March 21, 2026", "21.03.2026"),
+        ("", "", ""),
+        ("21.03.20267.", "21.03.20267.", None),
+        ("21.03.20267.", "", None),
+        ("06.04.2026", None, "06.04.2026"),
+    ],
+)
+def test_invalid_date_retries_without_restriction_and_restores_decoder(
+    monkeypatch, restricted, retry, expected
+):
+    original = FakeCTCDecoder()
+    predictor = SimpleNamespace(
+        config={"PostProcess": {"name": "CTCLabelDecode"}}, post_op=original
+    )
+    calls = []
+
+    class Recognizer:
+        paddlex_predictor = predictor
+
+        def predict(self, input):
+            calls.append(input.copy())
+            is_restricted = isinstance(predictor.post_op, paddle_adapter._CharacterLimitedDecoder)
+            return [{"rec_text": restricted if is_restricted else retry, "rec_score": 0.99}]
+
+    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(TextRecognition=object))
+    adapter = PaddleLayout()
+    adapter._value_recognizer = Recognizer()
+    with Image.new("RGB", (100, 20), "white") as image:
+        if expected is None:
+            with pytest.raises(ExtractionError, match="valid date"):
+                adapter.analyze(image, kind="date")
+        else:
+            result = adapter.analyze(image, kind="date")
+            assert result.area_value(kind="date") == expected
+            if retry is not None:
+                assert result.data["restricted_rec_text"] == restricted
+                assert result.data["rec_text"] == retry
+    assert predictor.post_op is original
+    assert len(calls) == (1 if retry is None and expected else 2)
+    if len(calls) == 2:
+        np.testing.assert_array_equal(calls[0], calls[1])
+
+
 def test_unicode_cache_uses_existing_ascii_alias_before_import(monkeypatch, tmp_path):
     cache = tmp_path / "Користувач ПК" / ".paddlex"
     cache.mkdir(parents=True)

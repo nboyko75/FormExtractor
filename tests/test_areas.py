@@ -234,7 +234,6 @@ def test_date_area_formats_and_cleans_values_before_publishing(
     [
         "31.02.2026",
         "29.02.2025",
-        "21.03.26",
         "21.03.20260",
         "99.21.03.2026",
         "21.03.2026 / 22.03.2026",

@@ -50,10 +50,16 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   signs (`+`, `-`), and spaces. **Date** areas allow digits, `.`, `/`, `-`, and spaces.
   Select a single value per number/date area. These types use PP-OCRv5's text
   recognizer with a restricted character set before decoding; text areas continue
-  to use PP-StructureV3 with the selected language. Leading zeroes are preserved,
-  and dates are formatted as `DD.MM.YYYY`, removing extra punctuation and text.
-  Day-first and year-first numeric dates are accepted; invalid or ambiguous dates
-  are reported as area errors. A four-digit year is required.
+  to use PP-StructureV3 with the selected language. Dates are formatted as
+  `DD.MM.YYYY`, removing extra punctuation and year suffixes such as `р.`.
+  If restricted decoding produces an empty or invalid date, the same crop is retried with
+  the normal alphabet and validated again. Successful date readings keep their path.
+  Accepted formats include day-first dates with dots, slashes, hyphens or spaces,
+  year-first dates (`YYYY-MM-DD`), unambiguous US dates (`03/21/2026`), compact
+  `DDMMYYYY`, `YYYYMMDD`, `DDMMYY`, and recognized English/Ukrainian/Russian month
+  names. Ambiguous numeric order is day-first (`06/04/2026` means 6 April).
+  Two-digit years use 2000–2049 for `00`–`49` and 1950–1999 for `50`–`99`.
+  Invalid dates, multiple dates and ambiguous compact dates are reported as errors.
   The numeric recognizer is downloaded on
   first use if it is not already cached. Existing saved areas default to Text;
   newly selected types are saved with their coordinates and included in JSON results.

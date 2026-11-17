@@ -238,9 +238,34 @@ class PaddleLayout:
             text = results[0]["rec_text"].strip()
             if any(char not in AREA_CHARACTERS[kind] for char in text):
                 raise ExtractionError("Recognition returned characters outside the selected type")
+            data = {"rec_text": text, "rec_score": results[0].get("rec_score")}
+            try:
+                value = clean_recognized_text(text, kind=kind)
+                if kind == "date" and not value:
+                    raise ExtractionError("No valid date text was recognized")
+            except ExtractionError as date_error:
+                if kind != "date":
+                    raise
+                # A printed year suffix (e.g. Ukrainian р.) can become a digit
+                # under the numeric restriction. Retry with the restored decoder
+                # and validate the entire date; never truncate an overlong year.
+                retry = list(self._value_recognizer.predict(input=bgr))
+                if len(retry) != 1 or not isinstance(retry[0].get("rec_text"), str):
+                    raise ExtractionError(
+                        "Unexpected date recognition output format"
+                    ) from date_error
+                text = retry[0]["rec_text"].strip()
+                value = clean_recognized_text(text, kind="date")
+                if not value and any(char.isdigit() for char in data["rec_text"]):
+                    raise date_error
+                data = {
+                    "rec_text": text,
+                    "rec_score": retry[0].get("rec_score"),
+                    "restricted_rec_text": data["rec_text"],
+                }
             return LayoutResult(
-                markdown=clean_recognized_text(text, kind=kind),
-                data={"rec_text": text, "rec_score": results[0].get("rec_score")},
+                markdown=value,
+                data=data,
             )
         except ExtractionError:
             raise
