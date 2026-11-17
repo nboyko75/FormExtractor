@@ -287,6 +287,34 @@ def test_file_menu_import_and_exit(form, image_path, monkeypatch):
     assert not form.root.winfo_exists()
 
 
+def test_help_menu_opens_bundled_manual_and_about(form, monkeypatch):
+    opened = []
+    monkeypatch.setattr(
+        "formextractor.mainform.webbrowser.open", lambda url: opened.append(url) or True
+    )
+    assert form.menu.entrycget(1, "label") == "Help"
+    assert form.help_menu.entrycget(0, "label") == "App manual"
+    assert form.help_menu.entrycget(0, "accelerator") == "F1"
+    assert form.help_menu.entrycget(1, "label") == "About"
+    form.help_menu.invoke(0)
+    assert opened[0].endswith("/formextractor/manual/index.html")
+    form.root.deiconify()
+    form.root.update()
+    form.root.focus_force()
+    form.root.event_generate("<F1>")
+    form.root.update()
+    assert opened == [opened[0], opened[0]]
+    form.help_menu.invoke(1)
+    assert form.about_form.window.title() == "About"
+    form.about_form.close_button.invoke()
+
+
+def test_manual_browser_failure_is_reported(form, monkeypatch):
+    monkeypatch.setattr("formextractor.mainform.webbrowser.open", lambda url: False)
+    form.show_manual()
+    assert form.test_errors and "index.html" in form.test_errors[0][1]
+
+
 @pytest.mark.parametrize("action", ["button", "window", "escape"])
 def test_settings_close_discards_selection(form, action):
     form.root.deiconify()

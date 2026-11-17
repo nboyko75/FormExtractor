@@ -103,10 +103,18 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
 - **Save...** provides `.txt` and `.json` filters and saves the corresponding editor. JSON is validated before saving.
 - **Exit** closes the window and stops its recognition worker.
 
-The menu provides **File → Import, Recognize, Save, Settings, Exit** and **About**.
+The menu provides **File → Import, Recognize, Save, Settings, Exit** and **Help → App manual (F1), About**.
 The menu actions perform the same actions as the corresponding buttons; Recognize
 and Save become available when areas and results are ready. About shows the application
-version and author contact details, using the same layout as DocExplorer.
+version and author contact details, using the same layout as DocExplorer. App manual
+opens the bundled offline English guide in the default browser, with a printable PDF link.
+The guide includes the supplied `store/Screenshots/Main_01.png` screenshot.
+
+Read the [HTML manual](src/formextractor/manual/index.html) or
+[PDF manual](src/formextractor/manual/FormExtractor_User_Manual.pdf).
+To regenerate both, install the development dependencies and run
+`python tools/build_manual.py` (Arial on Windows or DejaVu Sans on Linux).
+The wheel and Windows executable include the HTML, PDF and screenshot.
 
 In **File → Settings → Main**, select the interface language: English, German,
 French, Spanish, Portuguese (Portugal), Italian, Ukrainian, or Russian. **OK** saves

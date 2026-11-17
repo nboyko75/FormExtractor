@@ -4,6 +4,7 @@ import multiprocessing
 import re
 import sys
 import tkinter as tk
+import webbrowser
 from contextlib import closing
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -122,7 +123,13 @@ class MainForm:
         self.file_menu.add_separator()
         self.file_menu.add_command(label=self.tr("exit"), command=self.close)
         self.menu.add_cascade(label=self.tr("file"), menu=self.file_menu)
-        self.menu.add_command(label=self.tr("about"), command=self.show_about)
+        self.help_menu = tk.Menu(self.menu, tearoff=False)
+        self.help_menu.add_command(
+            label=self.tr("app_manual"), command=self.show_manual, accelerator="F1"
+        )
+        self.help_menu.add_command(label=self.tr("about"), command=self.show_about)
+        self.menu.add_cascade(label=self.tr("help"), menu=self.help_menu)
+        root.bind("<F1>", lambda event: self.show_manual())
         root.configure(menu=self.menu)
 
         # The native Windows sash is flat. Use Tk's raised sash element while
@@ -821,6 +828,18 @@ class MainForm:
             self.about_form.window.lift()
             return
         self.about_form = AboutForm(self.root, self.tr)
+
+    def show_manual(self) -> None:
+        manual = Path(__file__).resolve().parent / "manual" / "index.html"
+        try:
+            if not manual.is_file():
+                raise FileNotFoundError(str(manual))
+            if not webbrowser.open(manual.as_uri()):
+                raise OSError(str(manual))
+        except (OSError, webbrowser.Error):
+            messagebox.showerror(
+                self.tr("app_manual"), self.tr("manual_error", path=manual), parent=self.root
+            )
 
     def close(self) -> None:
         if not self._confirm_discard_edits():

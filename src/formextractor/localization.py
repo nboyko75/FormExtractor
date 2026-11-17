@@ -4,6 +4,9 @@ from .settings import LANGUAGES
 
 TRANSLATIONS = {
     "en": {
+        "help": "Help",
+        "app_manual": "App manual",
+        "manual_error": "Open this manual file in your browser:\n{path}",
         "file": "File",
         "import": "Import...",
         "settings": "Settings...",
@@ -97,6 +100,9 @@ TRANSLATIONS = {
         "invalid_dimensions": "PDF page {number} has invalid dimensions",
     },
     "de": {
+        "help": "Hilfe",
+        "app_manual": "Handbuch",
+        "manual_error": "Öffnen Sie diese Hilfedatei im Browser:\n{path}",
         "file": "Datei",
         "import": "Importieren...",
         "settings": "Einstellungen...",
@@ -199,6 +205,9 @@ TRANSLATIONS = {
         "invalid_dimensions": "PDF-Seite {number} hat ungültige Abmessungen",
     },
     "fr": {
+        "help": "Aide",
+        "app_manual": "Manuel de l’application",
+        "manual_error": "Ouvrez ce fichier dans votre navigateur :\n{path}",
         "file": "Fichier",
         "import": "Importer...",
         "settings": "Paramètres...",
@@ -303,6 +312,9 @@ TRANSLATIONS = {
         "invalid_dimensions": "Les dimensions de la page PDF {number} sont invalides",
     },
     "es": {
+        "help": "Ayuda",
+        "app_manual": "Manual de la aplicación",
+        "manual_error": "Abra este archivo en el navegador:\n{path}",
         "file": "Archivo",
         "import": "Importar...",
         "settings": "Configuración...",
@@ -400,6 +412,9 @@ TRANSLATIONS = {
         "invalid_dimensions": "La página PDF {number} tiene dimensiones no válidas",
     },
     "pt": {
+        "help": "Ajuda",
+        "app_manual": "Manual da aplicação",
+        "manual_error": "Abra este ficheiro no navegador:\n{path}",
         "file": "Ficheiro",
         "import": "Importar...",
         "settings": "Definições...",
@@ -497,6 +512,9 @@ TRANSLATIONS = {
         "invalid_dimensions": "A página PDF {number} tem dimensões inválidas",
     },
     "it": {
+        "help": "Aiuto",
+        "app_manual": "Manuale dell’app",
+        "manual_error": "Aprire questo file nel browser:\n{path}",
         "file": "File",
         "import": "Importa...",
         "settings": "Impostazioni...",
@@ -596,6 +614,9 @@ TRANSLATIONS = {
         "invalid_dimensions": "La pagina PDF {number} ha dimensioni non valide",
     },
     "uk": {
+        "help": "Довідка",
+        "app_manual": "Посібник користувача",
+        "manual_error": "Відкрийте цей файл у браузері:\n{path}",
         "file": "Файл",
         "import": "Імпортувати...",
         "settings": "Налаштування...",
@@ -694,6 +715,9 @@ TRANSLATIONS = {
         "invalid_dimensions": "Сторінка PDF {number} має некоректні розміри",
     },
     "ru": {
+        "help": "Справка",
+        "app_manual": "Руководство пользователя",
+        "manual_error": "Откройте этот файл в браузере:\n{path}",
         "file": "Файл",
         "import": "Импортировать...",
         "settings": "Настройки...",

@@ -56,6 +56,7 @@ rem Collect dynamically imported OCR modules, resources and package metadata.
     --recursive-copy-metadata paddlex ^
     --recursive-copy-metadata paddlepaddle ^
     --copy-metadata formextractor ^
+    --collect-data formextractor ^
     "main.py"
 if errorlevel 1 goto :failed
 
