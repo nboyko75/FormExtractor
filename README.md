@@ -65,6 +65,9 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   corresponding page of every matching file, allowing rotation, movement, and changes
   in scale. Photos of ruled forms also use the paper outline and internal table lines
   to correct perspective; the outline alone is never enough to accept a match.
+  If a tightly cropped scan hides the paper outline and the usual alignment fails,
+  a fallback uses the internal ruling to align the form. Successful existing
+  alignments are kept as they are.
   All selected areas use that shared alignment, so small or repeated table
   cells keep their positions. Detected text is excluded from image matching; borders
   and graphics establish alignment even when field values change. If page alignment

@@ -1,5 +1,7 @@
 """Register photographed forms by their paper outline and internal ruling."""
 
+from copy import copy
+
 import cv2
 import numpy as np
 
@@ -55,6 +57,61 @@ class RuledPage:
             return
         self.lines = structure
         self.quad = quad
+
+    @classmethod
+    def from_ruling(cls, gray, mask, *, paper):
+        """Seed alignment from internal lines when cropping hides the paper edge.
+
+        Keep the original paper-based representation intact. The bounding box
+        is only an initial estimate; align() still verifies the full line layout.
+        """
+        result = copy(paper)
+        if paper.quad is None:
+            height, width = gray.shape
+            size = (round(width * paper.scale[0, 0]), round(height * paper.scale[1, 1]))
+            if min(size) < 32:
+                return result
+            reduced = cv2.resize(gray, size, interpolation=cv2.INTER_AREA)
+            result.mask = cv2.resize(mask, size, interpolation=cv2.INTER_AREA) == 255
+            # A thin piece of paper/background at the image edge must not expand
+            # the estimated form bounds. Match against the interior ruling.
+            border = max(1, round(max(size) * 0.01))
+            result.mask[:border] = result.mask[-border:] = False
+            result.mask[:, :border] = result.mask[:, -border:] = False
+            result.lines = np.zeros_like(reduced)
+            lines = cv2.createLineSegmentDetector().detect(reduced)[0]
+            if lines is None:
+                return result
+            for line in lines[:, 0]:
+                start, end = line[:2], line[2:]
+                length = np.linalg.norm(end - start)
+                if length < max(size) * 0.04:
+                    continue
+                # A leftover paper edge has different backgrounds on its two
+                # sides. Ruling has paper on both sides, even under uneven light.
+                samples = start + np.linspace(0.2, 0.8, 7)[:, None] * (end - start)
+                normal = (end - start)[::-1] * np.array([1, -1]) * (5 / length)
+                sides = []
+                for sign in (-1, 1):
+                    pixels = np.rint(samples + sign * normal).astype(int)
+                    pixels[:, 0] = np.clip(pixels[:, 0], 0, size[0] - 1)
+                    pixels[:, 1] = np.clip(pixels[:, 1], 0, size[1] - 1)
+                    sides.append(float(np.median(reduced[pixels[:, 1], pixels[:, 0]])))
+                if abs(sides[0] - sides[1]) > 40:
+                    continue
+                cv2.line(result.lines, tuple(start.astype(int)), tuple(end.astype(int)), 255, 2)
+            result.lines[~result.mask] = 0
+
+        y, x = np.nonzero(result.lines)
+        height, width = result.lines.shape
+        if len(x) < max(width, height) * 4 or np.ptp(x) < width * 0.5 or np.ptp(y) < height * 0.5:
+            result.quad = None
+            return result
+        points = np.column_stack((x, y)).astype(np.float32)
+        quad = cv2.boxPoints(cv2.minAreaRect(points))
+        centered = quad - quad.mean(axis=0)
+        result.quad = quad[np.argsort(np.arctan2(centered[:, 1], centered[:, 0]))]
+        return result
 
     def align(self, target):
         """Return a verified source-to-target homography, or no alignment."""

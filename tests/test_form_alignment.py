@@ -46,15 +46,27 @@ def photograph(page, regions, corners, size):
 
 
 @pytest.mark.parametrize("turns", [0, 1, 2, 3])
-def test_photographed_grid_keeps_all_changed_fields_aligned(turns):
+@pytest.mark.parametrize("cropped, shaded", [(False, False), (True, False), (True, True)])
+def test_photographed_grid_keeps_all_changed_fields_aligned(turns, cropped, shaded, monkeypatch):
     page, regions = ruled_form()
     changed, _ = ruled_form(changed=True)
     source, source_regions, source_transform = photograph(
         page, regions, [(70, 80), (697, 55), (730, 920), (90, 940)], (800, 1000)
     )
     target, target_regions, target_transform = photograph(
-        changed, regions, [(110, 120), (755, 165), (690, 915), (65, 960)], (850, 1050)
+        changed,
+        regions,
+        [(-8, -40), (620, -30), (590, 810), (-15, 800)]
+        if cropped
+        else [(110, 120), (755, 165), (690, 915), (65, 960)],
+        (600, 800) if cropped else (850, 1050),
     )
+    if shaded:
+        # Brightness thresholding must not discard the darker header's ruling.
+        brightness = np.linspace(0.65, 1.0, target.height)[:, None, None]
+        pixels = (np.asarray(target) * brightness).astype(np.uint8)
+        target.close()
+        target = Image.fromarray(pixels)
     rotated = target.rotate(90 * turns, expand=True)
     rotation = np.eye(3)
     width, height = target.size
@@ -63,6 +75,12 @@ def test_photographed_grid_keeps_all_changed_fields_aligned(turns):
         width, height = height, width
     target_regions = cv2.perspectiveTransform(target_regions.reshape(1, -1, 2), rotation)
     matcher = PageMatcher(rotated, text_regions=target_regions.reshape(-1, 4, 2))
+    if not cropped:
+
+        def unexpected_fallback(reference):
+            pytest.fail("A successful existing alignment must not use the cropped-form fallback")
+
+        monkeypatch.setattr(matcher, "_cropped_form_alignment", unexpected_fallback)
     reference = PageTemplate(source, text_regions=source_regions)
     expected_transform = rotation @ target_transform @ np.linalg.inv(source_transform)
     for index, polygon in enumerate(source_regions):
@@ -84,6 +102,8 @@ def test_photographed_grid_keeps_all_changed_fields_aligned(turns):
     assert len(matcher.alignments) == 1
     _, actual = matcher.alignments[reference]
     assert actual.shape == (3, 3)
+    if cropped:
+        assert matcher.ruled_page.quad is None
     actual_points = cv2.perspectiveTransform(source_regions.reshape(1, -1, 2), actual)
     expected_points = cv2.perspectiveTransform(source_regions.reshape(1, -1, 2), expected_transform)
     assert np.linalg.norm(actual_points - expected_points, axis=2).max() < 3
@@ -117,3 +137,31 @@ def test_paper_outline_alone_or_ambiguous_ruling_cannot_establish_alignment(kind
     assert RuledPage(gray, mask).align(RuledPage(target_gray, mask)) is None
     for image in (page, other, source, target):
         image.close()
+
+
+@pytest.mark.parametrize("kind", ["blank", "unrelated", "symmetric", "text"])
+def test_ruling_fallback_rejects_missing_unrelated_or_ambiguous_structure(kind):
+    page, regions = ruled_form()
+    other = Image.new("RGB", page.size, "white")
+    draw = ImageDraw.Draw(other)
+    if kind in ("unrelated", "symmetric"):
+        for x in range(60, 541, 80):
+            draw.line((x, 80, x, 720), fill="black", width=2)
+        for y in range(80, 721, 80):
+            draw.line((60, y, 540, y), fill="black", width=2)
+    elif kind == "text":
+        # Long strokes inside detected text must not become ruling anchors.
+        for polygon in regions:
+            x1, y1 = polygon[0]
+            x2, y2 = polygon[2]
+            draw.line((x1 + 2, y1 + 4, x2 - 2, y1 + 4), fill="black", width=2)
+    if kind == "symmetric":
+        page.close()
+        page = other.copy()
+    reference = PageTemplate(page, text_regions=regions)
+    matcher = PageMatcher(other, text_regions=regions)
+    reference.ruled_page = RuledPage(reference.gray, reference.mask)
+    matcher.ruled_page = RuledPage(matcher.gray, matcher.mask)
+    assert matcher._cropped_form_alignment(reference) is None
+    page.close()
+    other.close()

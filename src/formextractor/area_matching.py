@@ -124,7 +124,10 @@ class PageMatcher:
                 return Image.fromarray(oriented[y1:y2, x1:x2].copy())
         reference = template.reference
         if reference not in self.alignments:
-            self.alignments[reference] = self._page_alignment(reference)
+            alignment = self._page_alignment(reference)
+            if alignment is None:
+                alignment = self._cropped_form_alignment(reference)
+            self.alignments[reference] = alignment
         alignment = self.alignments[reference]
         if alignment is not None:
             turns, transform = alignment
@@ -203,6 +206,19 @@ class PageMatcher:
         if score < 0.88:
             return None
         return None, transform
+
+    def _cropped_form_alignment(self, reference):
+        # Preserve every successful existing alignment. This fallback is only
+        # needed when a complete paper outline is unavailable in one scan.
+        source_paper, target_paper = reference.ruled_page, self.ruled_page
+        if source_paper is None or target_paper is None:
+            return None
+        if source_paper.quad is not None and target_paper.quad is not None:
+            return None
+        source = RuledPage.from_ruling(reference.gray, reference.mask, paper=source_paper)
+        target = RuledPage.from_ruling(self.gray, self.mask, paper=target_paper)
+        transform = source.align(target)
+        return None if transform is None else (None, transform)
 
     def _feature_crop(self, template: AreaTemplate) -> Image.Image | None:
         transform = self._feature_transform(
