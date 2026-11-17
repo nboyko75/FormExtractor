@@ -18,6 +18,21 @@ class LayoutResult:
     markdown: str
     data: dict[str, Any]
 
+    def area_value(self, *, kind: AreaKind = "text") -> str:
+        """Recover text hidden by layout formatting in an otherwise empty area."""
+        value = clean_recognized_text(self.markdown, kind=kind)
+        if value or kind != "text":
+            return value
+        # PP-Structure can label a small text crop as an image. Its Markdown
+        # then contains only an image placeholder, although OCR read the value.
+        # Reuse those readings without rerunning OCR or changing its alphabet.
+        result = self.data.get("res", self.data)
+        ocr = result.get("overall_ocr_res") if isinstance(result, dict) else None
+        texts = ocr.get("rec_texts") if isinstance(ocr, dict) else None
+        if isinstance(texts, list) and all(isinstance(text, str) for text in texts):
+            return clean_recognized_text("\n".join(texts))
+        return value
+
 
 def _windows_short_path(path: str) -> str | None:
     """Return the Windows alias without resolving it back to a Unicode path."""

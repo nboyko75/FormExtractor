@@ -112,11 +112,21 @@ def test_batch_missing_pages_and_unreadable_files_do_not_stop_other_files(
         ("  Reading < 5 and > 1  ", "Reading < 5 and > 1"),
         (
             "<div><table><tr><td>4291</td></tr></table></div>",
-            "<table><tr><td>4291</td></tr></table>",
+            "4291",
         ),
+        ('<span title="a > b"><b>00123</b></span>', "00123"),
+        ("<table><tr><td>00123</td><td>45</td></tr></table>", "00123\t45"),
+        ("First<br/>Second", "First\nSecond"),
+        ("<p><i>First</i></p><p>Second</p>", "First\n\nSecond"),
+        ("<!-- OCR layout --><em>12</em><strong>34</strong>", "1234"),
+        ("&lt;span&gt;00123&lt;/span&gt;", "00123"),
+        ("<span>A &amp; B</span>", "A & B"),
+        ("<script>ignored()</script><style>p{color:red}</style><b>123</b>", "123"),
+        ('<img src="scan.png"><br>', ""),
+        ("<span>00123", "00123"),
     ],
 )
-def test_recognized_values_omit_div_wrappers(image_path, no_text_detector, recognized, expected):
+def test_recognized_values_omit_html_markup(image_path, no_text_detector, recognized, expected):
     class OCR:
         def analyze(self, image):
             return LayoutResult(markdown=recognized, data={})
@@ -138,11 +148,54 @@ def test_recognized_values_omit_div_wrappers(image_path, no_text_detector, recog
     assert "<div" not in batch_text(result, Translator()).lower()
 
 
+def test_image_placeholder_recovers_ocr_value_in_batch_and_live_updates(
+    image_path, no_text_detector
+):
+    kinds = ["text", "number", "date", "number", "number"]
+    expected = ["5423E3", "5426", "06.04.2026", "319320", "323260"]
+    placeholder = '<div><img src="imgs/img_in_image_box_0_0_238_43.jpg" alt="Image" /></div>'
+    evidence = LayoutResult(
+        placeholder,
+        {"res": {"overall_ocr_res": {"rec_texts": ["5423E3"], "rec_scores": [0.99658]}}},
+    )
+
+    class OCR:
+        calls = 0
+
+        def analyze(self, image, *, kind="text"):
+            index = self.calls
+            self.calls += 1
+            assert kind == kinds[index]
+            return evidence if index == 0 else LayoutResult(expected[index], {})
+
+    updates = []
+    layout = OCR()
+    result = recognize_batch(
+        str(image_path),
+        [str(image_path)],
+        [area(n + 1).model_copy(update={"kind": kind}) for n, kind in enumerate(kinds)],
+        "*.png",
+        layout=layout,
+        text_detector=no_text_detector,
+        on_row=updates.append,
+    )
+    assert layout.calls == 5  # Recovery uses the same prediction, without another OCR pass.
+    assert result.rows[0].error is None
+    assert result.rows[0].values == expected
+    assert updates[0].values[0] == "5423E3"
+    assert updates[-1].values == expected
+    assert BatchResult.model_validate_json(result.model_dump_json()).rows[0].values == expected
+    assert "5423E3" in batch_text(result, Translator())
+    assert "<img" not in batch_text(result, Translator())
+    assert evidence.markdown == placeholder
+
+
 @pytest.mark.parametrize(
     "recognized,expected",
     [
         ("#21.03.2026р.", "21.03.2026"),
         ("<div>## 1 / 3 / 2026.</div>", "01.03.2026"),
+        ('<span data-page="123">06.<b>04</b>.2026</span>', "06.04.2026"),
         ("2026-03-21", "21.03.2026"),
         ("21..03//2026...", "21.03.2026"),
         ("Дата: 21 03 2026 року", "21.03.2026"),
@@ -272,7 +325,7 @@ def test_mixed_area_types_reach_recognition_and_survive_saved_results(image_path
     )
     assert calls == ["text", "number", "date"]
     assert result.rows[0].error is None
-    assert result.rows[0].values == ["Vehicle", "-001,5", "21.03.2026"]
+    assert result.rows[0].values == ["Vehicle", "-1.5", "21.03.2026"]
     restored = BatchResult.model_validate_json(result.model_dump_json())
     assert [area.kind for area in restored.areas] == calls
 

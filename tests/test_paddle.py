@@ -10,8 +10,38 @@ from PIL import Image
 
 from formextractor import paddle as paddle_adapter
 from formextractor.errors import ExtractionError
-from formextractor.paddle import PaddleLayout, PaddleTextDetector
+from formextractor.paddle import LayoutResult, PaddleLayout, PaddleTextDetector
 from formextractor.recognition_types import AREA_CHARACTERS
+
+
+@pytest.mark.parametrize(
+    "markdown,kind,readings,expected",
+    [
+        (
+            '<div><img src="imgs/img_in_image_box_0_0_238_43.jpg" /></div>',
+            "text",
+            ["5423E3"],
+            "5423E3",
+        ),
+        ("<img alt='Image' src='00123.jpg'>", "text", [], ""),
+        ("<img alt='Image'>", "text", ["First", "Second"], "First\nSecond"),
+        ("<img alt='Image'>", "text", None, ""),
+        ("<img alt='Image'>", "text", [123], ""),
+        ("<div>Existing value</div>", "text", ["Different value"], "Existing value"),
+        ("-001,5", "number", ["Different value"], "-1.5"),
+        ("", "number", ["123"], ""),
+        ("06.04.2026", "date", ["123"], "06.04.2026"),
+        ("", "date", ["06.04.2026"], ""),
+    ],
+)
+def test_area_value_recovers_only_missing_text_from_ocr_evidence(
+    markdown, kind, readings, expected
+):
+    raw = {"res": {"overall_ocr_res": {"rec_texts": readings}}}
+    result = LayoutResult(markdown, raw)
+    assert result.area_value(kind=kind) == expected
+    assert result.markdown == markdown  # Original layout evidence stays intact.
+    assert result.data == raw
 
 
 class FakeCTCDecoder:
@@ -91,7 +121,7 @@ def test_typed_recognition_is_lazy_reuses_model_and_restores_decoder_after_failu
     adapter = PaddleLayout(lang="uk")
     assert not instances
     with Image.new("RGB", (40, 20), "red") as image:
-        assert adapter.analyze(image, kind="number").markdown == "-001,5"
+        assert adapter.analyze(image, kind="number").markdown == "-1.5"
         recognizer = instances[0]
         assert recognizer.paddlex_predictor.post_op is recognizer.decoder
         recognizer.value = "2026/03/21."
@@ -105,7 +135,7 @@ def test_typed_recognition_is_lazy_reuses_model_and_restores_decoder_after_failu
         assert recognizer.paddlex_predictor.post_op is recognizer.decoder
         recognizer.fail = False
         recognizer.value = "+12.5"
-        assert adapter.analyze(image, kind="number").markdown == "+12.5"
+        assert adapter.analyze(image, kind="number").markdown == "12.5"
         # Text recognition still follows the original full-alphabet path.
         adapter._pipeline = SimpleNamespace(
             predict=lambda input: [

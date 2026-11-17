@@ -2,6 +2,9 @@ import os
 import re
 import tempfile
 from datetime import date
+from decimal import Decimal
+from html import unescape
+from html.parser import HTMLParser
 from pathlib import Path
 
 from .errors import ExtractionError
@@ -9,15 +12,79 @@ from .recognition_types import AreaKind
 from .schema import DocumentResult
 
 
+class _ValueTextParser(HTMLParser):
+    """Keep visible text, separating HTML blocks and table cells."""
+
+    blocks = frozenset(
+        "address article aside blockquote div dl dt dd fieldset figcaption figure footer "
+        "form h1 h2 h3 h4 h5 h6 header hr li main nav ol p pre section table tbody "
+        "thead tfoot tr ul".split()
+    )
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.hidden = None
+
+    def handle_starttag(self, tag, attrs):
+        if self.hidden:
+            return
+        if tag in ("script", "style"):
+            self.hidden = tag
+        elif tag in self.blocks or tag == "br":
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if self.hidden:
+            if tag == self.hidden:
+                self.hidden = None
+        elif tag in self.blocks:
+            self.parts.append("\n")
+        elif tag in ("td", "th"):
+            self.parts.append("\t")
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(data)
+
+
 def clean_recognized_text(text: str, *, kind: AreaKind = "text") -> str:
-    """Remove OCR div wrappers and heading markers while retaining the values."""
-    # Match only div tags, allowing quoted attributes to contain '>'. Preserve
-    # other Markdown/HTML (such as tables) and literal comparisons in the text.
-    text = re.sub(r"""</?div\b(?:[^<>"']|"[^"]*"|'[^']*')*>""", "\n", text, flags=re.IGNORECASE)
+    """Remove HTML markup and heading markers while retaining recognized values."""
+    parser = _ValueTextParser()
+    parser.feed(unescape(text))
+    parser.close()
+    text = re.sub(r"\t+(?=\n|$)", "", "".join(parser.parts))
     # OCR also emits hashes without a separating space, or spaced sequences of
     # hashes. Remove every leading marker, but keep hashes inside text such as C#.
     text = re.sub(r"^[^\S\r\n]*(?:#[^\S\r\n]*)+", "", text, flags=re.MULTILINE).strip()
-    return format_recognized_date(text) if kind == "date" else text
+    if kind == "date":
+        return format_recognized_date(text)
+    if kind == "number":
+        return format_recognized_number(text)
+    return text
+
+
+def format_recognized_number(text: str) -> str:
+    """Return one canonical decimal value without units or surrounding OCR noise."""
+    text = text.replace("\N{MINUS SIGN}", "-")
+    digits = list(re.finditer(r"[0-9]", text))
+    if not digits:
+        return ""
+    start, end = digits[0].start(), digits[-1].end()
+    prefix = text[:start].rstrip()
+    # Include a sign and a decimal point before a fractional value such as -.5.
+    if prefix.endswith((".", ",")):
+        start = len(prefix) - 1
+        prefix = prefix[:-1].rstrip()
+    if prefix.endswith(("+", "-")):
+        start = len(prefix) - 1
+    candidate = re.sub(r"\s+", "", text[start:end]).replace(",", ".")
+    if not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)", candidate):
+        raise ExtractionError("Could not recognize one valid number")
+    value = Decimal(candidate)
+    if value == 0:
+        return "0"
+    return format(value, "f").rstrip("0").rstrip(".") if "." in candidate else str(value)
 
 
 def format_recognized_date(text: str) -> str:

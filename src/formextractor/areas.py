@@ -16,7 +16,7 @@ from pydantic import Field, model_validator
 from .area_matching import AreaTemplate, PageMatcher, PageTemplate
 from .documents import IMAGE_EXTENSIONS, iter_pages
 from .errors import ExtractionError
-from .output import clean_recognized_text, validate_output_path
+from .output import validate_output_path
 from .paddle import PaddleLayout, PaddleTextDetector
 from .recognition_types import AreaKind
 from .schema import StrictModel
@@ -214,9 +214,7 @@ def recognize_batch(
                                     if area.kind == "text"
                                     else layout.analyze(crop, kind=area.kind)
                                 )
-                                row.values[index] = clean_recognized_text(
-                                    recognized.markdown, kind=area.kind
-                                )
+                                row.values[index] = recognized.area_value(kind=area.kind)
                         except Exception as exc:
                             errors.append(f"Area {area.number}: {exc}")
                             row.error = "; ".join(errors)

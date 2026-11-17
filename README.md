@@ -207,14 +207,22 @@ Desktop batch JSON contains `source` (the template file), `mode: "areas"`, `mode
 `values` array, and an optional `error`. Unreadable files, failed crops, and missing
 template pages are reported per file without discarding other files' results; values
 that could not be recognized are `null`. The Text tab shows an aligned table, escaping
-line breaks inside cells as `\n`. JSON retains original multiline values. Files should
+line breaks inside cells as `\n`. Recognized values omit HTML tags, retaining their
+text content; table cells are separated by tabs. JSON retains multiline values. Files should
 share the template's layout; no automatic alignment between different form layouts is performed.
+If layout detection exports a text area as an image placeholder, an otherwise empty
+value is recovered from the same prediction's OCR text. This fallback does not
+replace existing nonempty text values or use unrestricted OCR for number/date areas.
+Number values remove surrounding text, digit-grouping spaces, leading zeros and
+redundant decimal zeros; decimal commas become dots (for example, `-001,50 km`
+becomes `-1.5`). Ambiguous numeric expressions are reported as recognition errors.
+Values remain strings in batch JSON, including normalized numbers and dates.
 
 The CLI/Python whole-document API retains its existing output: JSON contains `source`,
 `mode: "paddle"`, `model: "PP-StructureV3"`, and `pages`. Each page includes:
 
 - `page`, `image_width`, `image_height`: page identity and processed image dimensions.
-- `text`: PaddleOCR's full reconstructed Markdown, including detected table HTML.
+- `text`: Recognized text with HTML tags and leading heading markers removed.
 - `fields`: simple explicit `Name: value` lines split into `number`, `name`, and `value`. Repeated labels and leading zeros are preserved. This is a heuristic; review the results.
 - `ocr.markdown` and `ocr.raw`: full PaddleOCR output, including detected layout regions, text coordinates, recognition scores, and table structures where available.
 
