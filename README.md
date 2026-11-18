@@ -52,7 +52,7 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   recognizer with a restricted character set before decoding; text areas continue
   to use PP-StructureV3 with the selected language. Dates are formatted as
   `DD.MM.YYYY`, removing extra punctuation and year suffixes such as `р.`.
-  If restricted decoding produces an empty or invalid date, the same crop is retried with
+  If restricted decoding produces an empty, invalid or ambiguous date, the same crop is retried with
   the normal alphabet and validated again. Successful date readings keep their path.
   Accepted formats include day-first dates with dots, slashes, hyphens or spaces,
   year-first dates (`YYYY-MM-DD`), unambiguous US dates (`03/21/2026`), compact
@@ -60,6 +60,8 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   names. Ambiguous numeric order is day-first (`06/04/2026` means 6 April).
   Two-digit years use 2000–2049 for `00`–`49` and 1950–1999 for `50`–`99`.
   Invalid dates, multiple dates and ambiguous compact dates are reported as errors.
+  This includes slash/one confusion: `08105189` can mean `08/05/89` or `08.10.5189`.
+  Such readings are retried and reported as errors if OCR cannot resolve the ambiguity.
   The numeric recognizer is downloaded on
   first use if it is not already cached. Existing saved areas default to Text;
   newly selected types are saved with their coordinates and included in JSON results.

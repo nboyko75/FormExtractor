@@ -161,6 +161,9 @@ def test_typed_recognition_is_lazy_reuses_model_and_restores_decoder_after_failu
         ("21.03.20267.", "21.03.20267.", None),
         ("21.03.20267.", "", None),
         ("06.04.2026", None, "06.04.2026"),
+        ("08105189", "08/05/89", "08.05.1989"),
+        ("08105189", "08105189", None),
+        ("08105189", "", None),
     ],
 )
 def test_invalid_date_retries_without_restriction_and_restores_decoder(

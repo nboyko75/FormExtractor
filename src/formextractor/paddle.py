@@ -246,9 +246,9 @@ class PaddleLayout:
             except ExtractionError as date_error:
                 if kind != "date":
                     raise
-                # A printed year suffix (e.g. Ukrainian р.) can become a digit
-                # under the numeric restriction. Retry with the restored decoder
-                # and validate the entire date; never truncate an overlong year.
+                # A year suffix can become a digit; slashes read as ones can also
+                # resemble a valid compact date. Retry with the restored decoder
+                # and require an unambiguous reading instead of replacing digits.
                 retry = list(self._value_recognizer.predict(input=bgr))
                 if len(retry) != 1 or not isinstance(retry[0].get("rec_text"), str):
                     raise ExtractionError(

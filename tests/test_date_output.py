@@ -31,6 +31,9 @@ from formextractor.output import clean_recognized_text
         ("21 марта 2026 г.", "21.03.2026"),
         ("6 квіт. 26", "06.04.2026"),
         ("29/02/24", "29.02.2024"),
+        ("08/05/89", "08.05.1989"),
+        ("08.10.5189", "08.10.5189"),
+        ("08051989", "08.05.1989"),
     ],
 )
 def test_common_dates_are_normalized_and_idempotent(text, expected):
@@ -49,6 +52,10 @@ def test_common_dates_are_normalized_and_idempotent(text, expected):
         "99.21.03.2026",
         "21 March 2026 and 22 March 2026",
         "21.03.2026 / 22.03.2026",
+        "08105189",
+        "08105189.",
+        "08/05189",
+        "08105/89",
     ],
 )
 def test_invalid_dates_do_not_get_truncated_or_silently_repaired(text):

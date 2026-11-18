@@ -34,6 +34,33 @@ def _year(text):
     return year + (2000 if year < 50 else 1900) if len(text) == 2 else year
 
 
+def _has_slash_conflict(text: str, value: date) -> bool:
+    """Detect a second valid reading when OCR may have read date slashes as ones."""
+    text = text.strip().rstrip(".")
+    for day_width in (1, 2):
+        for month_width in (1, 2):
+            match = re.fullmatch(
+                rf"([0-9]{{{day_width}}})([1/])"
+                rf"([0-9]{{{month_width}}})([1/])([0-9]{{2}}|[0-9]{{4}})",
+                text,
+            )
+            if match is None:
+                continue
+            day, first_separator, month, second_separator, year = match.groups()
+            if "1" not in (first_separator, second_separator):
+                continue
+            day, month = int(day), int(month)
+            if month > 12 and 1 <= day <= 12:
+                day, month = month, day
+            try:
+                alternative = date(_year(year), month, day)
+            except ValueError:
+                continue
+            if alternative != value:
+                return True
+    return False
+
+
 def format_recognized_date(text: str) -> str:
     """Normalize numeric or named-month dates to DD.MM.YYYY; prefer day first."""
     parts = re.findall(r"[0-9]+", text)
@@ -72,4 +99,6 @@ def format_recognized_date(text: str) -> str:
     if len(valid) != 1:
         raise ExtractionError("Could not recognize one valid date")
     value = valid.pop()
+    if _has_slash_conflict(text, value):
+        raise ExtractionError("Could not recognize one valid date: ambiguous '/' and '1'")
     return f"{value.day:02d}.{value.month:02d}.{value.year:04d}"
