@@ -358,7 +358,7 @@ def test_batch_saves_all_eight_masked_fields_in_area_number_order(tmp_path):
     )
     assert result.rows[0].error is None
     assert result.rows[0].values == [str(number) for number in range(1, 9)]
-    with Image.open(tmp_path / "form_areas.png") as saved:
+    with Image.open(tmp_path / "areas" / "form_areas.png") as saved:
         assert saved.size == (
             max(crop.width for crop in expected),
             sum(crop.height for crop in expected),

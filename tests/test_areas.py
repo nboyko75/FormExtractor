@@ -345,7 +345,7 @@ def test_save_area_images_contains_only_crops_in_number_order(
 
     def on_file(filename):
         if filename == str(paths[1]):
-            assert (tmp_path / "first_areas.png").exists() is save_areas
+            assert (tmp_path / "areas" / "first_areas.png").exists() is save_areas
 
     result = recognize_batch(
         str(paths[0]),
@@ -359,8 +359,9 @@ def test_save_area_images_contains_only_crops_in_number_order(
     )
     assert all(row.error is None for row in result.rows)
     assert [path.read_bytes() for path in paths] == originals
+    assert (tmp_path / "areas").exists() is save_areas
     for path in paths:
-        destination = path.with_name(path.stem + "_areas.png")
+        destination = path.parent / "areas" / (path.stem + "_areas.png")
         assert destination.exists() is save_areas
         if save_areas:
             with Image.open(destination) as saved:
@@ -390,7 +391,7 @@ def test_save_areas_includes_matches_even_when_ocr_fails(tmp_path, no_text_detec
         text_detector=no_text_detector,
     )
     assert "OCR failed" in result.rows[0].error
-    with Image.open(tmp_path / "source_areas.png") as saved:
+    with Image.open(tmp_path / "areas" / "source_areas.png") as saved:
         assert saved.size == (60, 80)
         assert saved.getpixel((0, 0)) == (255, 0, 0)
 
@@ -424,12 +425,13 @@ def test_area_image_save_failure_keeps_results_and_continues(
     assert "Cannot save areas image: Read-only output" in result.rows[0].error
     assert result.rows[0].values == ["(255, 0, 0)"]
     assert result.rows[1].error is None
-    assert (tmp_path / "second_areas.png").exists()
+    assert (tmp_path / "areas" / "second_areas.png").exists()
 
 
 def test_area_images_never_overwrite_batch_inputs(tmp_path, no_text_detector):
     source = tmp_path / "scan.png"
-    protected = tmp_path / "scan_areas.png"
+    protected = tmp_path / "areas" / "scan_areas.png"
+    protected.parent.mkdir()
     with Image.new("RGB", (120, 80), "red") as image:
         image.save(source)
         image.save(protected)
@@ -464,7 +466,7 @@ def test_save_areas_combines_multiple_pages(tmp_path, no_text_detector):
         text_detector=no_text_detector,
     )
     assert result.rows[0].error is None
-    with Image.open(tmp_path / "scan_areas.png") as saved:
+    with Image.open(tmp_path / "areas" / "scan_areas.png") as saved:
         assert saved.size == (60, 160)
         assert saved.getpixel((0, 0)) == (255, 0, 0)
         assert saved.getpixel((0, 80)) == (0, 128, 0)
@@ -486,7 +488,7 @@ def test_no_matching_areas_does_not_create_image(tmp_path, no_text_detector):
         text_detector=no_text_detector,
     )
     assert "No reliable image match" in result.rows[0].error
-    assert not (tmp_path / "target_areas.png").exists()
+    assert not (tmp_path / "areas" / "target_areas.png").exists()
 
 
 def test_conflicting_area_image_names_are_reported(tmp_path, no_text_detector):
@@ -504,13 +506,14 @@ def test_conflicting_area_image_names_are_reported(tmp_path, no_text_detector):
         text_detector=no_text_detector,
     )
     assert all("same areas image filename" in row.error for row in result.rows)
-    assert not (tmp_path / "scan_areas.png").exists()
+    assert not (tmp_path / "areas" / "scan_areas.png").exists()
 
 
 def test_failed_image_write_preserves_previous_export(tmp_path, monkeypatch):
     from formextractor.areas import _save_area_image
 
-    destination = tmp_path / "scan_areas.png"
+    destination = tmp_path / "areas" / "scan_areas.png"
+    destination.parent.mkdir()
     destination.write_bytes(b"previous export")
 
     def failed_save(self, handle, **kwargs):
@@ -522,4 +525,4 @@ def test_failed_image_write_preserves_previous_export(tmp_path, monkeypatch):
         with pytest.raises(OSError, match="Disk full"):
             _save_area_image(destination, {1: crop})
     assert destination.read_bytes() == b"previous export"
-    assert list(tmp_path.iterdir()) == [destination]
+    assert list(destination.parent.iterdir()) == [destination]

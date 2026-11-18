@@ -142,7 +142,7 @@ PAGES = [
             ("h", "Save areas for checking"),
             (
                 "p",
-                "Enable Save areas before recognition to save a PNG of the matched crops beside each input, such as invoice_areas.png. Crops are stacked by area number. An unmatched crop is omitted; a matched crop can still be saved if OCR fails. These generated images are excluded from future batches. A later run replaces the corresponding areas image.",
+                "Enable Save areas before recognition to save a PNG of the matched crops in an automatically created areas subfolder beside each input, such as areas/invoice_areas.png. Crops are stacked by area number. An unmatched crop is omitted; a matched crop can still be saved if OCR fails. These generated images are excluded from future batches. A later run replaces the corresponding areas image.",
             ),
             ("h", "Review the table"),
             (

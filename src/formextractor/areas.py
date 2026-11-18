@@ -109,7 +109,7 @@ def matching_files(source: Path, mask: str) -> list[Path]:
 
 
 def area_image_path(source: Path) -> Path:
-    return source.with_name(source.stem + "_areas.png")
+    return source.parent / "areas" / (source.stem + "_areas.png")
 
 
 def _save_area_image(destination: Path, crops: dict[int, Image.Image]) -> None:
@@ -117,6 +117,7 @@ def _save_area_image(destination: Path, crops: dict[int, Image.Image]) -> None:
     ordered = [crops[number] for number in sorted(crops)]
     width = max(crop.width for crop in ordered)
     height = sum(crop.height for crop in ordered)
+    destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
         with Image.new("RGB", (width, height), "white") as combined:
