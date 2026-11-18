@@ -255,7 +255,7 @@ def recognize_batch(
 
 
 def batch_text(result: BatchResult, tr) -> str:
-    """An editable Markdown table: one file per row and numbered areas per column."""
+    """An editable Markdown table with multiline values flattened to one row per file."""
 
     def cell(value: str | None) -> str:
         return (
@@ -263,8 +263,8 @@ def batch_text(result: BatchResult, tr) -> str:
             .replace("\\", "\\\\")
             .replace("|", "\\|")
             .replace("\r\n", "\n")
-            .replace("\n", "\\n")
-            .replace("\r", "\\n")
+            .replace("\n", " ")
+            .replace("\r", " ")
             .replace("\t", "\\t")
         )
 
