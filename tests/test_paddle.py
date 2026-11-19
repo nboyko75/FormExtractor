@@ -2,6 +2,7 @@ import builtins
 import io
 import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -200,6 +201,73 @@ def test_invalid_date_retries_without_restriction_and_restores_decoder(
     assert len(calls) == (1 if retry is None and expected else 2)
     if len(calls) == 2:
         np.testing.assert_array_equal(calls[0], calls[1])
+
+
+@pytest.mark.parametrize(
+    "filename,readings,score,expected",
+    [
+        ("f0047_00.png", ["08", "05", "89"] * 2, 0.95, "08.05.1989"),
+        ("f0303_00.png", ["08", "09", "89"] * 2, 0.95, "08.09.1989"),
+        ("f0047_00.png", ["08", "05", "89", "08", "09", "89"], 0.95, None),
+        ("f0047_00.png", ["08", "05", "89"] * 2, 0.79, None),
+        ("f0047_00.png", ["08", "05", "89"] * 2, float("nan"), None),
+        ("f0047_00.png", ["31", "02", "89"] * 2, 0.99, None),
+        ("f0047_00.png", ["08", "05", "189"] * 2, 0.99, None),
+        ("f0047_00.png", ["O8", "05", "89"] * 2, 0.99, None),
+    ],
+)
+def test_failed_date_reads_slash_separated_parts_conservatively(
+    monkeypatch, filename, readings, score, expected
+):
+    original = FakeCTCDecoder()
+    predictor = SimpleNamespace(
+        config={"PostProcess": {"name": "CTCLabelDecode"}}, post_op=original
+    )
+    calls = []
+
+    class Recognizer:
+        paddlex_predictor = predictor
+
+        def predict(self, input):
+            calls.append(input.copy())
+            text = "08105189" if len(calls) <= 2 else readings[len(calls) - 3]
+            return [{"rec_text": text, "rec_score": score}]
+
+    monkeypatch.setattr(paddle_adapter, "_prepare_model_cache", lambda: None)
+    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(TextRecognition=object))
+    adapter = PaddleLayout()
+    adapter._value_recognizer = Recognizer()
+    with Image.open(Path(__file__).parent / "data" / "date_slashes" / filename) as image:
+        before = image.tobytes()
+        if expected is None:
+            with pytest.raises(ExtractionError, match="valid date"):
+                adapter.analyze(image, kind="date")
+        else:
+            result = adapter.analyze(image, kind="date")
+            assert result.markdown == expected
+            assert result.data["restricted_rec_text"] == "08105189"
+            assert len(result.data["date_part_readings"]) == 2
+            assert len(calls) == 8
+        assert image.tobytes() == before
+    assert predictor.post_op is original
+
+
+def test_date_parts_failure_restores_decoder(monkeypatch):
+    original = FakeCTCDecoder()
+    predictor = SimpleNamespace(post_op=original)
+
+    class Recognizer:
+        paddlex_predictor = predictor
+
+        def predict(self, input):
+            raise RuntimeError("Model failed on a date part")
+
+    adapter = PaddleLayout()
+    adapter._value_recognizer = Recognizer()
+    with Image.open(Path(__file__).parent / "data/date_slashes/f0047_00.png") as image:
+        with pytest.raises(RuntimeError, match="date part"):
+            adapter._recover_slash_date(image, {"rec_text": "08105189"})
+    assert predictor.post_op is original
 
 
 def test_unicode_cache_uses_existing_ascii_alias_before_import(monkeypatch, tmp_path):

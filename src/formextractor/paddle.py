@@ -1,6 +1,7 @@
 """Local PP-StructureV3 recognition, loaded only when recognition starts."""
 
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -255,14 +256,24 @@ class PaddleLayout:
                         "Unexpected date recognition output format"
                     ) from date_error
                 text = retry[0]["rec_text"].strip()
-                value = clean_recognized_text(text, kind="date")
-                if not value and any(char.isdigit() for char in data["rec_text"]):
-                    raise date_error
                 data = {
                     "rec_text": text,
                     "rec_score": retry[0].get("rec_score"),
                     "restricted_rec_text": data["rec_text"],
                 }
+                try:
+                    value = clean_recognized_text(text, kind="date")
+                    if not value and any(char.isdigit() for char in data["restricted_rec_text"]):
+                        raise date_error
+                except ExtractionError:
+                    recovered = self._recover_slash_date(image, data)
+                    if recovered is not None:
+                        return recovered
+                    raise
+                if not value:
+                    recovered = self._recover_slash_date(image, data)
+                    if recovered is not None:
+                        return recovered
             return LayoutResult(
                 markdown=value,
                 data=data,
@@ -271,3 +282,52 @@ class PaddleLayout:
             raise
         except Exception as exc:
             raise ExtractionError(f"PaddleOCR failed: {_exception_details(exc)}") from exc
+
+    def _recover_slash_date(self, image: Image.Image, data: dict) -> LayoutResult | None:
+        """Require two confident, agreeing readings of geometrically separated date parts."""
+        from .date_images import date_part_variants
+
+        variants = date_part_variants(image)
+        if len(variants) != 2:
+            return None
+        predictor = self._value_recognizer.paddlex_predictor
+        original = predictor.post_op
+        attempts = []
+        predictor.post_op = _CharacterLimitedDecoder(original, "0123456789")
+        try:
+            for name, parts in variants:
+                readings, scores = [], []
+                for index, pixels in enumerate(parts):
+                    results = list(self._value_recognizer.predict(input=pixels))
+                    if len(results) != 1:
+                        return None
+                    text, score = results[0].get("rec_text"), results[0].get("rec_score")
+                    pattern = r"[0-9]{1,2}" if index < 2 else r"(?:[0-9]{2}|[0-9]{4})"
+                    if not isinstance(text, str) or not re.fullmatch(pattern, text.strip()):
+                        return None
+                    if not isinstance(score, (int, float)) or not 0.8 <= score <= 1:
+                        return None
+                    readings.append(text.strip())
+                    scores.append(float(score))
+                text = "/".join(readings)
+                try:
+                    value = clean_recognized_text(text, kind="date")
+                except ExtractionError:
+                    return None
+                attempts.append(
+                    {"preprocessing": name, "text": text, "score": min(scores), "value": value}
+                )
+        finally:
+            predictor.post_op = original
+        if attempts[0]["value"] != attempts[1]["value"]:
+            return None
+        return LayoutResult(
+            markdown=attempts[0]["value"],
+            data={
+                **data,
+                "unrestricted_rec_text": data["rec_text"],
+                "rec_text": attempts[0]["text"],
+                "rec_score": min(attempt["score"] for attempt in attempts),
+                "date_part_readings": attempts,
+            },
+        )

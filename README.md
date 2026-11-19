@@ -62,6 +62,10 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   Invalid dates, multiple dates and ambiguous compact dates are reported as errors.
   This includes slash/one confusion: `08105189` can mean `08/05/89` or `08.10.5189`.
   Such readings are retried and reported as errors if OCR cannot resolve the ambiguity.
+  Failed Date areas also get a fallback for boxed handwriting: remove edge rules, locate
+  two separate slash strokes, and recognize the three digit groups independently.
+  Grayscale and binary versions must agree, with every group scoring at least 0.80.
+  This fallback never runs for Number/Text areas or already successful date readings.
   The numeric recognizer is downloaded on
   first use if it is not already cached. Existing saved areas default to Text;
   newly selected types are saved with their coordinates and included in JSON results.
