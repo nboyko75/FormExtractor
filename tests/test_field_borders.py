@@ -140,6 +140,8 @@ def test_date_fallback_retains_box_geometry_but_primary_ocr_receives_clean_pixel
         monkeypatch.setattr(adapter, "_recover_slash_date", recover)
         result = adapter.analyze_area(cleaned, kind="date", original_image=original)
         assert result.markdown == "08.09.1989"
-        assert len(seen) == 2
-        for pixels in seen:
+        assert len(seen) == 4
+        for pixels in seen[:2]:
             np.testing.assert_array_equal(pixels, np.asarray(cleaned)[:, :, ::-1])
+        for pixels in seen[2:]:
+            np.testing.assert_array_equal(pixels, np.asarray(original.convert("RGB"))[:, :, ::-1])

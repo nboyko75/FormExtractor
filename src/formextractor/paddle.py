@@ -319,16 +319,12 @@ class PaddleLayout:
                     if not value and any(char.isdigit() for char in data["restricted_rec_text"]):
                         raise date_error
                 except ExtractionError:
-                    recovered = self._recover_slash_date(
-                        image if fallback_image is None else fallback_image, data
-                    )
+                    recovered = self._recover_date(image, data, original_image=fallback_image)
                     if recovered is not None:
                         return recovered
                     raise
                 if not value:
-                    recovered = self._recover_slash_date(
-                        image if fallback_image is None else fallback_image, data
-                    )
+                    recovered = self._recover_date(image, data, original_image=fallback_image)
                     if recovered is not None:
                         return recovered
             return LayoutResult(
@@ -339,6 +335,47 @@ class PaddleLayout:
             raise
         except Exception as exc:
             raise ExtractionError(f"PaddleOCR failed: {_exception_details(exc)}") from exc
+
+    def _recover_date(
+        self, image: Image.Image, data: dict, *, original_image: Image.Image | None = None,
+    ) -> LayoutResult | None:
+        """Retry intact handwriting when border cleanup has damaged a date stroke."""
+        if original_image is not None:
+            import numpy as np
+
+            pixels = np.asarray(original_image.convert("RGB"))[:, :, ::-1].copy()
+            predictor = self._value_recognizer.paddlex_predictor
+            original = predictor.post_op
+            try:
+                for decoder in (_CharacterLimitedDecoder(original, AREA_CHARACTERS["date"]),
+                                original):
+                    predictor.post_op = decoder
+                    results = list(self._value_recognizer.predict(input=pixels))
+                    if len(results) != 1 or not isinstance(results[0].get("rec_text"), str):
+                        raise ExtractionError("Unexpected date recognition output format")
+                    text, score = results[0]["rec_text"].strip(), results[0].get("rec_score")
+                    if not isinstance(score, (int, float)) or not 0.8 <= score <= 1:
+                        continue
+                    try:
+                        value = clean_recognized_text(text, kind="date")
+                    except ExtractionError:
+                        continue
+                    if value:
+                        return LayoutResult(
+                            markdown=value,
+                            data={
+                                **data,
+                                "borderless_rec_text": data["rec_text"],
+                                "rec_text": text,
+                                "rec_score": score,
+                                "date_original_reading": True,
+                            },
+                        )
+            finally:
+                predictor.post_op = original
+        return self._recover_slash_date(
+            image if original_image is None else original_image, data
+        )
 
     def _recover_slash_date(self, image: Image.Image, data: dict) -> LayoutResult | None:
         """Require two confident, agreeing readings of geometrically separated date parts."""

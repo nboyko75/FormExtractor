@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw
 from formextractor.date_images import date_part_variants
 
 
-@pytest.mark.parametrize("filename", ["f0047_00.png", "f0303_00.png"])
+@pytest.mark.parametrize("filename", ["f0047_00.png", "f0303_00.png", "f0128_00.png"])
 def test_boxed_handwriting_splits_into_three_padded_parts(filename):
     with Image.open(Path(__file__).parent / "data" / "date_slashes" / filename) as image:
         before = image.tobytes()

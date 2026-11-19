@@ -270,6 +270,81 @@ def test_date_parts_failure_restores_decoder(monkeypatch):
     assert predictor.post_op is original
 
 
+@pytest.mark.parametrize(
+    "reading,score,expected",
+    [
+        ("8/3/89", .95, "08.03.1989"),
+        ("8/11/1989", .95, "08.11.1989"),
+        ("18/3/89", .95, "18.03.1989"),
+        ("8/3/89", .79, None),
+        ("8/3/89", float("nan"), None),
+        ("31/2/89", .99, None),
+        ("813189", .99, None),
+        ("", .99, None),
+    ],
+)
+@pytest.mark.parametrize("unrestricted_only", [False, True])
+def test_date_retries_original_crop_after_border_cleanup(
+    monkeypatch, reading, score, expected, unrestricted_only,
+):
+    original = FakeCTCDecoder()
+    predictor = SimpleNamespace(
+        config={"PostProcess": {"name": "CTCLabelDecode"}}, post_op=original,
+    )
+    calls = []
+
+    class Recognizer:
+        paddlex_predictor = predictor
+
+        def predict(self, input):
+            calls.append(input.copy())
+            intact = np.any(input < 128)
+            restricted = isinstance(predictor.post_op, paddle_adapter._CharacterLimitedDecoder)
+            text = reading if intact and not (restricted and unrestricted_only) else "813189"
+            return [{"rec_text": text, "rec_score": score}]
+
+    monkeypatch.setattr(paddle_adapter, "_prepare_model_cache", lambda: None)
+    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(TextRecognition=object))
+    adapter = PaddleLayout()
+    adapter._value_recognizer = Recognizer()
+    with Image.open(Path(__file__).parent / "data/date_slashes/f0128_00.png") as source:
+        before = source.tobytes()
+        with Image.new("RGB", source.size, "white") as cleaned:
+            if expected is None:
+                with pytest.raises(ExtractionError, match="valid date"):
+                    adapter.analyze_area(cleaned, kind="date", original_image=source)
+            else:
+                result = adapter.analyze_area(cleaned, kind="date", original_image=source)
+                assert result.area_value(kind="date") == expected
+                assert result.data["date_original_reading"] is True
+                assert result.data["borderless_rec_text"] == "813189"
+                assert result.data["rec_text"] == reading
+                assert len(calls) == (4 if unrestricted_only else 3)
+            for pixels in calls[:2]:
+                np.testing.assert_array_equal(pixels, np.asarray(cleaned)[:, :, ::-1])
+            np.testing.assert_array_equal(calls[2], np.asarray(source.convert("RGB"))[:, :, ::-1])
+        assert source.tobytes() == before
+    assert predictor.post_op is original
+
+
+def test_original_date_retry_failure_restores_decoder(monkeypatch):
+    original = FakeCTCDecoder()
+    predictor = SimpleNamespace(post_op=original)
+
+    class Recognizer:
+        paddlex_predictor = predictor
+
+        def predict(self, input):
+            raise RuntimeError("Original date OCR failed")
+
+    adapter = PaddleLayout()
+    adapter._value_recognizer = Recognizer()
+    with Image.new("RGB", (100, 30), "white") as source:
+        with pytest.raises(RuntimeError, match="Original date OCR failed"):
+            adapter._recover_date(source, {"rec_text": "813189"}, original_image=source)
+    assert predictor.post_op is original
+
+
 def test_unicode_cache_uses_existing_ascii_alias_before_import(monkeypatch, tmp_path):
     cache = tmp_path / "Користувач ПК" / ".paddlex"
     cache.mkdir(parents=True)
