@@ -164,6 +164,57 @@ class PaddleLayout:
         self._pipeline = None
         self._value_recognizer = None
 
+    def analyze_area(
+        self, image: Image.Image, *, kind: AreaKind = "text",
+        original_image: Image.Image | None = None,
+    ) -> LayoutResult:
+        """Recover missed single-line text fields without changing full-page OCR."""
+        result = (
+            self._analyze_value(image, kind, fallback_image=original_image)
+            if kind == "date" and original_image is not None
+            else self.analyze(image, kind=kind)
+        )
+        if kind != "text" or result.area_value():
+            return result
+        from .field_images import text_line_variants
+
+        variants = text_line_variants(image)
+        if not variants:
+            return result
+        try:
+            # Reuse PP-Structure's loaded recognizer and selected language. This
+            # bypasses layout/text detection, keeping its full alphabet intact.
+            recognizer = self._pipeline.paddlex_pipeline.general_ocr_pipeline.text_rec_model
+            readings = []
+            for name, pixels in variants:
+                predictions = list(recognizer(input=pixels))
+                if len(predictions) != 1:
+                    raise ExtractionError("Unexpected text line recognition output format")
+                text = predictions[0].get("rec_text")
+                score = predictions[0].get("rec_score")
+                if not isinstance(text, str):
+                    raise ExtractionError("Unexpected text line recognition output format")
+                value = clean_recognized_text(text)
+                if not value or not isinstance(score, (int, float)) or not 0.8 <= score <= 1:
+                    return result
+                readings.append({"preprocessing": name, "text": value, "score": float(score)})
+            if readings[0]["text"].casefold() != readings[1]["text"].casefold():
+                return result
+            return LayoutResult(
+                markdown=readings[0]["text"],
+                data={
+                    **result.data,
+                    "layout_markdown": result.markdown,
+                    "text_line_readings": readings,
+                },
+            )
+        except ExtractionError:
+            raise
+        except Exception as exc:
+            raise ExtractionError(
+                f"Text field recognition failed: {_exception_details(exc)}"
+            ) from exc
+
     def analyze(self, image: Image.Image, *, kind: AreaKind = "text") -> LayoutResult:
         if kind != "text":
             return self._analyze_value(image, kind)
@@ -207,7 +258,9 @@ class PaddleLayout:
         except Exception as exc:
             raise ExtractionError(f"PaddleOCR failed: {_exception_details(exc)}") from exc
 
-    def _analyze_value(self, image: Image.Image, kind: AreaKind) -> LayoutResult:
+    def _analyze_value(
+        self, image: Image.Image, kind: AreaKind, *, fallback_image: Image.Image | None = None,
+    ) -> LayoutResult:
         """Read a selected number/date directly with a restricted character decoder."""
         if kind not in AREA_CHARACTERS:
             raise ExtractionError(f"Unknown recognition area type: {kind}")
@@ -266,12 +319,16 @@ class PaddleLayout:
                     if not value and any(char.isdigit() for char in data["restricted_rec_text"]):
                         raise date_error
                 except ExtractionError:
-                    recovered = self._recover_slash_date(image, data)
+                    recovered = self._recover_slash_date(
+                        image if fallback_image is None else fallback_image, data
+                    )
                     if recovered is not None:
                         return recovered
                     raise
                 if not value:
-                    recovered = self._recover_slash_date(image, data)
+                    recovered = self._recover_slash_date(
+                        image if fallback_image is None else fallback_image, data
+                    )
                     if recovered is not None:
                         return recovered
             return LayoutResult(

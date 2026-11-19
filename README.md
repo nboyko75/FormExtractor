@@ -50,7 +50,16 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   signs (`+`, `-`), and spaces. **Date** areas allow digits, `.`, `/`, `-`, and spaces.
   Select a single value per number/date area. These types use PP-OCRv5's text
   recognizer with a restricted character set before decoding; text areas continue
-  to use PP-StructureV3 with the selected language. Dates are formatted as
+  to use PP-StructureV3 with the selected language. Before recognizing any selected
+  Text, Number, or Date area, long table/cell borders are removed from a copy of the
+  matched crop. Its dimensions stay unchanged, and strokes crossing a rule are
+  interpolated to avoid cutting off handwriting below the cell border.
+  If a selected text area is empty,
+  narrow single-line fields are retried directly with the same language's recognizer
+  after removing edge rules and adding margins. Grayscale and binary readings must
+  agree (ignoring case), both scoring at least 0.80. Full-page recognition retains
+  the original layout; difficult handwriting can still remain unreadable.
+  Dates are formatted as
   `DD.MM.YYYY`, removing extra punctuation and year suffixes such as `р.`.
   If restricted decoding produces an empty, invalid or ambiguous date, the same crop is retried with
   the normal alphabet and validated again. Successful date readings keep their path.
@@ -92,7 +101,8 @@ Alternatively, use `python -m formextractor.mainform` or the installed `formextr
   surrounding form structure to establish page alignment. Recognition runs in a
   separate process, and the status bar displays the file currently being processed.
 - **Save areas**, on the right of the recognition-language row, saves the matched crops after
-  each file finishes recognition. The checkbox wraps below that row in narrow panes.
+  border cleanup, as supplied to recognition, after each file finishes recognition.
+  The checkbox wraps below that row in narrow panes.
   One PNG is written in an automatically created `areas` subfolder, for example `areas/invoice_areas.png`
   for `invoice.pdf`. Crops are stacked in area-number order, including matches from different
   pages, with white padding when widths differ. Unmatched regions are omitted. Matching crops

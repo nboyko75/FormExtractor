@@ -16,6 +16,7 @@ from pydantic import Field, model_validator
 from .area_matching import AreaTemplate, PageMatcher, PageTemplate
 from .documents import IMAGE_EXTENSIONS, iter_pages
 from .errors import ExtractionError
+from .field_images import remove_area_borders
 from .output import validate_output_path
 from .paddle import PaddleLayout, PaddleTextDetector
 from .recognition_types import AreaKind
@@ -157,6 +158,7 @@ def recognize_batch(
         raise ExtractionError("Recognition area numbers must be unique")
     if layout is None:
         layout = PaddleLayout(lang=language)
+    analyze_area = getattr(layout, "analyze_area", layout.analyze)
     if text_detector is None:
         text_detector = PaddleTextDetector()
     required_pages = {area.page for area in ordered}
@@ -207,13 +209,22 @@ def recognize_batch(
                             template = templates.get(area.number)
                             if template is None:
                                 raise ExtractionError(f"Missing template page: {area.page}")
-                            with matcher.crop(template) as crop:
+                            with matcher.crop(template) as matched_crop, remove_area_borders(
+                                matched_crop
+                            ) as crop:
                                 if save_areas:
                                     crops[area.number] = crop.copy()
+                                # Date-part segmentation uses the original box to
+                                # exclude headings, then removes its rules before OCR.
+                                options = (
+                                    {"original_image": matched_crop}
+                                    if area.kind == "date" and isinstance(layout, PaddleLayout)
+                                    else {}
+                                )
                                 recognized = (
-                                    layout.analyze(crop)
+                                    analyze_area(crop)
                                     if area.kind == "text"
-                                    else layout.analyze(crop, kind=area.kind)
+                                    else analyze_area(crop, kind=area.kind, **options)
                                 )
                                 row.values[index] = recognized.area_value(kind=area.kind)
                         except Exception as exc:

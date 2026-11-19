@@ -33,6 +33,22 @@ class ColorOCR:
         return LayoutResult(markdown=str(colors[0][1]), data={})
 
 
+def test_batch_uses_area_recognition_when_available(image_path, no_text_detector):
+    class AreaOCR:
+        def analyze(self, image):
+            pytest.fail("Selected fields must use the area fallback")
+
+        def analyze_area(self, image):
+            return LayoutResult("Dundee", {})
+
+    result = recognize_batch(
+        str(image_path), [str(image_path)], [area()], "*",
+        layout=AreaOCR(), text_detector=no_text_detector,
+    )
+    assert result.rows[0].values == ["Dundee"]
+    assert result.rows[0].error is None
+
+
 def test_batch_crops_only_areas_scales_coordinates_and_orders_columns(tmp_path, no_text_detector):
     for name, size in [("b.png", (240, 160)), ("a.png", (120, 80))]:
         with Image.new("RGB", size, "red") as image:
