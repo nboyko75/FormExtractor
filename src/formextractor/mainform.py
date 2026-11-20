@@ -129,6 +129,7 @@ class MainForm:
         )
         self.file_menu.add_command(label=self.tr("recognize"), command=self.recognize)
         self.file_menu.add_command(label=self.tr("save"), command=self.save, accelerator="Ctrl+S")
+        self.file_menu.add_command(label=self.tr("stop"), command=self.stop_recognition)
         self.file_menu.add_command(label=self.tr("settings"), command=self.show_settings)
         self.file_menu.add_separator()
         self.file_menu.add_command(label=self.tr("exit"), command=self.close)
@@ -431,6 +432,7 @@ class MainForm:
         self.file_menu.entryconfigure(
             2, state="normal" if self.result is not None and not busy else "disabled"
         )
+        self.file_menu.entryconfigure(3, state="normal" if busy else "disabled")
         self.ocr_language_box.configure(state="disabled" if busy else "readonly")
         self.mask_entry.configure(state="disabled" if busy else "normal")
         self.area_editor.enabled = not busy

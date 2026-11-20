@@ -282,7 +282,7 @@ def test_file_menu_import_and_exit(form, image_path, monkeypatch):
     form.recognize()
     job = form.job
     assert form.file_menu.entrycget(0, "state") == "disabled"
-    form.file_menu.invoke(5)
+    form.file_menu.invoke(6)
     assert job.closed
     assert not form.root.winfo_exists()
 
@@ -319,7 +319,7 @@ def test_manual_browser_failure_is_reported(form, monkeypatch):
 def test_settings_close_discards_selection(form, action):
     form.root.deiconify()
     form.root.update()
-    form.file_menu.invoke(3)
+    form.file_menu.invoke(4)
     dialog = form.settings_form
     dialog.language_box.current(1)
     if action == "button":
