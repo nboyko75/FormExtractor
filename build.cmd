@@ -44,6 +44,7 @@ rem Collect dynamically imported OCR modules, resources and package metadata.
     --windowed ^
     --noupx ^
     --name FormExtractor ^
+    --icon "%CD%\images\main.ico" ^
     --paths "src" ^
     --distpath "dist" ^
     --workpath "build\pyinstaller" ^

@@ -93,6 +93,16 @@ class MainForm:
         self.page_label = tk.StringVar(value=self.tr("no_pages"))
 
         root.title("FormExtractor")
+        icon_path = Path(__file__).resolve().parent / "images" / "main.ico"
+        if sys.platform == "win32":
+            root.iconbitmap(default=str(icon_path))
+        else:
+            with Image.open(icon_path) as icon:
+                self.window_icons = [
+                    ImageTk.PhotoImage(icon.ico.getimage(size), master=root)
+                    for size in sorted(icon.ico.sizes())
+                ]
+            root.iconphoto(True, *self.window_icons)
         window = self.preferences.get("window", {})
         if not isinstance(window, dict):
             window = {}
